@@ -1,0 +1,58 @@
+[package]
+name = "rain-karaoke"
+version = "0.1.0"
+description = "直播K歌助手"
+authors = ["rainp1ng"]
+edition = "2021"
+
+[lib]
+name = "rain_karaoke_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+# 数据库
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# 音频处理
+rodio = { version = "0.19", default-features = false, features = ["mp3", "wav", "flac", "vorbis"] }
+cpal = "0.15"
+rubato = "0.15"
+
+# MIDI
+midir = "0.9"
+
+# VAD语音检测
+webrtc-vad = "0.4"
+
+# 文件处理
+walkdir = "2"
+dirs = "5"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# 元数据提取
+lofty = "0.21"
+regex = "1"
+pathdiff = "0.2"
+mime_guess = "2"
+rand = "0.8"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
