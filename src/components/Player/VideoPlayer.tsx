@@ -135,11 +135,33 @@ function VideoPlayer() {
   const handleLoadedMetadata = () => {
     const player = getMainPlayer()
     if (player) {
-      player.playbackRate = speed
+      // 应用当前状态到新加载的媒体
+      player.volume = volume  // 应用当前音量
+
+      // 应用音调（升降调）
+      // @ts-ignore - preservesPitch 是标准 API
+      if ('preservesPitch' in player) {
+        // @ts-ignore
+        player.preservesPitch = false
+      }
+      const pitchRatio = semitonesToRatio(pitch)
+      player.playbackRate = speed * pitchRatio
+
       setDuration(player.duration)
       if (status === 'playing') {
         player.play().catch(e => console.error('自动播放失败:', e))
       }
+    }
+    // 同样设置独立音频的音量和音调
+    if (useSeparateAudio && separateAudioRef.current) {
+      separateAudioRef.current.volume = volume
+      // @ts-ignore
+      if ('preservesPitch' in separateAudioRef.current) {
+        // @ts-ignore
+        separateAudioRef.current.preservesPitch = false
+      }
+      const pitchRatio = semitonesToRatio(pitch)
+      separateAudioRef.current.playbackRate = speed * pitchRatio
     }
   }
 
