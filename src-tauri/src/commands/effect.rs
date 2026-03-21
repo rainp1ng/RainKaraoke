@@ -519,6 +519,9 @@ pub fn start_live_audio(db: State<Database>, state: State<AppAudioState>, app_st
 pub fn stop_live_audio(state: State<AppAudioState>) -> Result<bool, String> {
     println!("[Command] stop_live_audio called");
 
+    // 停止 ducking 检测线程
+    state.global.stop_ducking_thread();
+
     // 停止录音
     let _ = state.global.recorder.lock().unwrap().stop_recording();
 

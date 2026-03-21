@@ -272,6 +272,10 @@ pub struct GlobalAudioState {
     pub ducking_release_start: std::sync::atomic::AtomicU64,
     /// 过场音乐管理器引用（用于 ducking）
     pub interlude_manager: Mutex<Option<std::sync::Arc<Mutex<crate::modules::interlude::InterludeManager>>>>,
+    /// 当前输入电平（用于 ducking 检测，避免在音频回调中获取锁）
+    pub current_input_level: std::sync::atomic::AtomicU32,
+    /// Ducking 检测线程停止信号
+    pub ducking_stop_signal: std::sync::atomic::AtomicBool,
 }
 
 impl GlobalAudioState {
@@ -300,6 +304,8 @@ impl GlobalAudioState {
             ducking_recovery_delay: std::sync::atomic::AtomicU32::new(3), // 默认3秒
             ducking_release_start: std::sync::atomic::AtomicU64::new(0),
             interlude_manager: Mutex::new(None),
+            current_input_level: std::sync::atomic::AtomicU32::new(0),
+            ducking_stop_signal: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -377,6 +383,28 @@ impl GlobalAudioState {
         }
     }
 
+    /// 启动 ducking 检测线程
+    pub fn start_ducking_thread(self: Arc<Self>) {
+        // 重置停止信号
+        self.ducking_stop_signal.store(false, Ordering::Relaxed);
+
+        let state = self.clone();
+        std::thread::spawn(move || {
+            println!("[DuckingThread] Started");
+            while !state.ducking_stop_signal.load(Ordering::Relaxed) {
+                state.check_ducking();
+                // 每 50ms 检查一次
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            println!("[DuckingThread] Stopped");
+        });
+    }
+
+    /// 停止 ducking 检测线程
+    pub fn stop_ducking_thread(&self) {
+        self.ducking_stop_signal.store(true, Ordering::Relaxed);
+    }
+
     /// 设置 ducking 参数
     pub fn set_ducking_params(&self, enabled: bool, threshold: f32, ratio: f32, recovery_delay: u32) {
         println!("[GlobalState] set_ducking_params: enabled={}, threshold={}, ratio={}, recovery_delay={}", enabled, threshold, ratio, recovery_delay);
@@ -386,26 +414,37 @@ impl GlobalAudioState {
         self.ducking_recovery_delay.store(recovery_delay.clamp(1, 9), Ordering::Relaxed);
     }
 
+    /// 更新输入电平（在音频回调中调用，无锁）
+    pub fn update_input_level(&self, level: f32) {
+        self.current_input_level.store(float_to_u32(level), Ordering::Relaxed);
+    }
+
     /// 检查并应用 ducking（根据输入电平）
-    /// 只在过场音乐播放期间进行 ducking 检测
-    pub fn check_ducking(&self, input_level: f32) {
+    /// 使用 try_lock 避免阻塞，只在过场音乐播放期间进行 ducking 检测
+    /// 这个方法应该从单独的线程定期调用，而不是从音频回调中调用
+    pub fn check_ducking(&self) {
         if !self.ducking_enabled.load(Ordering::Relaxed) {
             return;
         }
 
-        // 检查过场音乐是否正在播放
-        let interlude_playing = if let Ok(guard) = self.interlude_manager.lock() {
+        // 从原子变量读取输入电平
+        let input_level = u32_to_float(self.current_input_level.load(Ordering::Relaxed));
+
+        // 使用 try_lock 检查过场音乐是否正在播放，避免阻塞
+        let interlude_playing = if let Ok(guard) = self.interlude_manager.try_lock() {
             if let Some(ref manager) = *guard {
-                if let Ok(mgr) = manager.lock() {
+                if let Ok(mgr) = manager.try_lock() {
                     mgr.get_state().is_playing
                 } else {
-                    false
+                    // 无法获取锁，保持当前状态
+                    return;
                 }
             } else {
                 false
             }
         } else {
-            false
+            // 无法获取锁，直接返回，避免阻塞
+            return;
         };
 
         // 过场音乐未播放时，不进行 ducking 检测
@@ -429,9 +468,10 @@ impl GlobalAudioState {
                 // 开始 ducking
                 println!("[Ducking] Starting ducking! input_level={:.4} > threshold={:.4}", input_level, threshold);
                 self.is_ducking.store(true, Ordering::Relaxed);
-                if let Ok(guard) = self.interlude_manager.lock() {
+                // 使用 try_lock 避免阻塞
+                if let Ok(guard) = self.interlude_manager.try_lock() {
                     if let Some(ref manager) = *guard {
-                        if let Ok(mut mgr) = manager.lock() {
+                        if let Ok(mut mgr) = manager.try_lock() {
                             mgr.apply_ducking(ratio);
                         }
                     }
@@ -468,9 +508,10 @@ impl GlobalAudioState {
                     println!("[Ducking] Release delay reached! elapsed={}s >= {}s", elapsed, recovery_delay);
                     self.is_ducking.store(false, Ordering::Relaxed);
                     self.ducking_release_start.store(0, Ordering::Relaxed);
-                    if let Ok(guard) = self.interlude_manager.lock() {
+                    // 使用 try_lock 避免阻塞
+                    if let Ok(guard) = self.interlude_manager.try_lock() {
                         if let Some(ref manager) = *guard {
-                            if let Ok(mut mgr) = manager.lock() {
+                            if let Ok(mut mgr) = manager.try_lock() {
                                 mgr.release_ducking();
                             }
                         }
@@ -758,6 +799,9 @@ impl LiveAudioManager {
             // 如果失败，重置 is_running
             self.global_state.is_running.store(false, Ordering::SeqCst);
             eprintln!("[LiveRouter] Start failed, reset is_running");
+        } else {
+            // 启动 ducking 检测线程
+            self.global_state.clone().start_ducking_thread();
         }
 
         result
@@ -1059,10 +1103,10 @@ fn process_input_f32(data: &[f32], input_channels: u16, state: &GlobalAudioState
             buffer.write(&mono_samples);
         }
 
-        // 检测人声输入电平并触发 ducking
+        // 更新输入电平（用于 ducking 检测，无锁）
         if mono_samples.len() > 0 {
             let max_level = mono_samples.iter().map(|s| s.abs()).fold(0.0f32, |a, b| a.max(b));
-            state.check_ducking(max_level);
+            state.update_input_level(max_level);
         }
     } else {
         if let Ok(mut buffer) = state.instrument_buffer.lock() {
@@ -1154,10 +1198,10 @@ fn process_input_i16(data: &[i16], input_channels: u16, state: &GlobalAudioState
             buffer.write(&mono_samples);
         }
 
-        // 检测人声输入电平并触发 ducking
+        // 更新输入电平（用于 ducking 检测，无锁）
         if mono_samples.len() > 0 {
             let max_level = mono_samples.iter().map(|s| s.abs()).fold(0.0f32, |a, b| a.max(b));
-            state.check_ducking(max_level);
+            state.update_input_level(max_level);
         }
     } else {
         if let Ok(mut buffer) = state.instrument_buffer.lock() {
@@ -1244,10 +1288,10 @@ fn process_input_u16(data: &[u16], input_channels: u16, state: &GlobalAudioState
             buffer.write(&mono_samples);
         }
 
-        // 检测人声输入电平并触发 ducking
+        // 更新输入电平（用于 ducking 检测，无锁）
         if mono_samples.len() > 0 {
             let max_level = mono_samples.iter().map(|s| s.abs()).fold(0.0f32, |a, b| a.max(b));
-            state.check_ducking(max_level);
+            state.update_input_level(max_level);
         }
     } else {
         if let Ok(mut buffer) = state.instrument_buffer.lock() {
