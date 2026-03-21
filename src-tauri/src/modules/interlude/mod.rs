@@ -19,6 +19,7 @@ pub struct InterludeState {
 }
 
 /// 过场音乐管理器
+#[derive(Clone)]
 pub struct InterludeManager {
     pub state: Arc<Mutex<InterludeState>>,
     pub audio_player: InterludeAudioPlayer,
@@ -99,39 +100,36 @@ impl InterludeManager {
 
     /// 暂停播放
     pub fn pause(&mut self) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        state.is_playing = false;
-
-        self.audio_player.pause();
-
+        {
+            let mut state = self.state.lock().unwrap();
+            state.is_playing = false;
+            self.audio_player.pause();
+        }
         self.emit_state_change();
-
         Ok(())
     }
 
     /// 继续播放
     pub fn resume(&mut self) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        state.is_playing = true;
-
-        self.audio_player.resume();
-
+        {
+            let mut state = self.state.lock().unwrap();
+            state.is_playing = true;
+            self.audio_player.resume();
+        }
         self.emit_state_change();
-
         Ok(())
     }
 
     /// 停止播放
     pub fn stop(&mut self) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        state.is_playing = false;
-        state.current_track_id = None;
-        state.current_track_title = None;
-
-        self.audio_player.stop();
-
+        {
+            let mut state = self.state.lock().unwrap();
+            state.is_playing = false;
+            state.current_track_id = None;
+            state.current_track_title = None;
+            self.audio_player.stop();
+        }
         self.emit_state_change();
-
         Ok(())
     }
 
@@ -152,6 +150,7 @@ impl InterludeManager {
         drop(state);
 
         let ducked_volume = original_volume * ducking_ratio;
+        println!("[Interlude] apply_ducking: original_volume={}, ratio={}, ducked_volume={}", original_volume, ducking_ratio, ducked_volume);
         self.audio_player.set_volume(ducked_volume);
 
         let mut state = self.state.lock().unwrap();

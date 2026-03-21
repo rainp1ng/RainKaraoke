@@ -1,10 +1,10 @@
 import { useEffect } from 'react'
-import { Trash2, GripVertical, Play, ListMusic } from 'lucide-react'
+import { Trash2, GripVertical, ListMusic, ChevronUp } from 'lucide-react'
 import { useQueueStore, usePlaybackStore } from '@/stores'
 import { formatDuration } from '@/utils/format'
 
 function Queue() {
-  const { items, isLoading, loadQueue, removeFromQueue, clearQueue } = useQueueStore()
+  const { items, loadQueue, removeFromQueue, moveToNext, clearQueue } = useQueueStore()
   const { play, status, currentSongId } = usePlaybackStore()
 
   useEffect(() => {
@@ -12,9 +12,23 @@ function Queue() {
   }, [])
 
   const handlePlaySong = (song: any) => {
+    console.log('点击播放歌曲:', song)
     if (song) {
       play(song)
     }
+  }
+
+  // 顶歌 - 移到当前播放歌曲之后（下一首位置）
+  const handleMoveToTop = async (queueId: number) => {
+    if (currentSongId) {
+      await moveToNext(queueId, currentSongId)
+    }
+  }
+
+  // 判断是否可以顶歌（不能顶正在播放的歌曲）
+  const canMoveToTop = (item: any, _index: number) => {
+    // 必须有正在播放的歌曲，且目标不是正在播放的歌曲
+    return currentSongId && item.songId !== currentSongId
   }
 
   return (
@@ -79,12 +93,26 @@ function Queue() {
                     {isPlaying && (
                       <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse mr-2" />
                     )}
+                    {/* 顶歌按钮 - 非正在播放且有歌曲在播放时显示 */}
+                    {canMoveToTop(item, index) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleMoveToTop(item.id)
+                        }}
+                        className="p-1 hover:bg-dark-600 rounded transition-colors text-dark-400 hover:text-primary-400"
+                        title="置顶到下一首"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
                         removeFromQueue(item.id)
                       }}
                       className="p-1 hover:bg-dark-600 rounded transition-colors text-dark-400 hover:text-red-400"
+                      title="移除"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

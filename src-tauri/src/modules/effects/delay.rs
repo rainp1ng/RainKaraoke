@@ -33,20 +33,27 @@ impl DelayProcessor {
 
 impl AudioProcessor for DelayProcessor {
     fn process(&mut self, input: &[f32], output: &mut [f32]) {
-        let delay_samples = (self.time * self.sample_rate / 1000.0) as usize;
+        let buffer_len = self.left_buffer.len();
+        // 确保 delay_samples 不超过缓冲区大小
+        let delay_samples = ((self.time * self.sample_rate / 1000.0) as usize).min(buffer_len - 1);
 
         for (i, sample) in input.iter().enumerate() {
-            let read_pos = if self.left_pos > delay_samples {
+            let read_pos = if self.left_pos >= delay_samples {
                 self.left_pos - delay_samples
             } else {
-                self.left_buffer.len() - (delay_samples - self.left_pos)
+                buffer_len - (delay_samples - self.left_pos)
             };
 
-            let delayed = self.left_buffer[read_pos];
+            // 确保索引在有效范围内
+            let delayed = if read_pos < buffer_len {
+                self.left_buffer[read_pos]
+            } else {
+                0.0
+            };
 
             // 写入缓冲区
             self.left_buffer[self.left_pos] = *sample + delayed * self.feedback;
-            self.left_pos = (self.left_pos + 1) % self.left_buffer.len();
+            self.left_pos = (self.left_pos + 1) % buffer_len;
 
             // 混合输出
             output[i] = *sample * (1.0 - self.mix) + delayed * self.mix;

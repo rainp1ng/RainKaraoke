@@ -2,6 +2,8 @@ use tauri::State;
 use crate::db::Database;
 use crate::models::{AudioConfig, UpdateAudioConfig};
 use crate::modules::audio_router::AudioManager;
+use crate::commands::effect::AppAudioState;
+use crate::modules::AppState;
 use serde::Serialize;
 use std::sync::Mutex;
 
@@ -53,6 +55,7 @@ pub fn get_audio_config(db: State<Database>) -> Result<AudioConfig, String> {
         "SELECT default_output_device, interlude_output_device, atmosphere_output_device, \
          master_volume, interlude_volume, atmosphere_volume, \
          ducking_enabled, ducking_threshold, ducking_ratio, ducking_attack_ms, ducking_release_ms, \
+         COALESCE(ducking_recovery_delay, 3), \
          midi_device_id, midi_enabled \
          FROM audio_config WHERE id = 1",
         [],
@@ -69,8 +72,9 @@ pub fn get_audio_config(db: State<Database>) -> Result<AudioConfig, String> {
                 ducking_ratio: row.get(8)?,
                 ducking_attack_ms: row.get(9)?,
                 ducking_release_ms: row.get(10)?,
-                midi_device_id: row.get(11)?,
-                midi_enabled: row.get::<_, i32>(12)? == 1,
+                ducking_recovery_delay: row.get(11)?,
+                midi_device_id: row.get(12)?,
+                midi_enabled: row.get::<_, i32>(13)? == 1,
             })
         },
     )
@@ -78,7 +82,13 @@ pub fn get_audio_config(db: State<Database>) -> Result<AudioConfig, String> {
 }
 
 #[tauri::command]
-pub fn save_audio_config(db: State<Database>, config: UpdateAudioConfig) -> Result<bool, String> {
+pub fn save_audio_config(
+    db: State<Database>,
+    audio_state: State<AppAudioState>,
+    app_state: State<AppState>,
+    config: UpdateAudioConfig,
+) -> Result<bool, String> {
+    println!("[Audio] save_audio_config called with: {:?}", config);
     let conn = crate::db::get_connection(&db);
 
     conn.execute(
@@ -94,8 +104,9 @@ pub fn save_audio_config(db: State<Database>, config: UpdateAudioConfig) -> Resu
          ducking_ratio = COALESCE(?9, ducking_ratio), \
          ducking_attack_ms = COALESCE(?10, ducking_attack_ms), \
          ducking_release_ms = COALESCE(?11, ducking_release_ms), \
-         midi_device_id = COALESCE(?12, midi_device_id), \
-         midi_enabled = COALESCE(?13, midi_enabled), \
+         ducking_recovery_delay = COALESCE(?12, ducking_recovery_delay), \
+         midi_device_id = COALESCE(?13, midi_device_id), \
+         midi_enabled = COALESCE(?14, midi_enabled), \
          updated_at = CURRENT_TIMESTAMP WHERE id = 1",
         rusqlite::params![
             config.default_output_device,
@@ -109,11 +120,48 @@ pub fn save_audio_config(db: State<Database>, config: UpdateAudioConfig) -> Resu
             config.ducking_ratio,
             config.ducking_attack_ms,
             config.ducking_release_ms,
+            config.ducking_recovery_delay,
             config.midi_device_id,
             config.midi_enabled.map(|b| b as i32),
         ],
     )
     .map_err(|e| e.to_string())?;
+
+    println!("[Audio] Database updated successfully");
+
+    // 更新运行时的 ducking 参数
+    if config.ducking_enabled.is_some()
+        || config.ducking_threshold.is_some()
+        || config.ducking_ratio.is_some()
+        || config.ducking_recovery_delay.is_some()
+    {
+        // 从数据库重新读取完整配置
+        let (enabled, threshold, ratio, recovery_delay): (bool, f32, f32, u32) = conn
+            .query_row(
+                "SELECT ducking_enabled, ducking_threshold, ducking_ratio, COALESCE(ducking_recovery_delay, 8) FROM audio_config WHERE id = 1",
+                [],
+                |row| Ok((row.get::<_, i32>(0)? == 1, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .map_err(|e| e.to_string())?;
+
+        audio_state.global.set_ducking_params(enabled, threshold, ratio, recovery_delay);
+        println!("[Audio] Updated ducking params: enabled={}, threshold={}, ratio={}, recovery_delay={}s",
+            enabled, threshold, ratio, recovery_delay);
+    }
+
+    // 更新过场音乐音量
+    if let Some(volume) = config.interlude_volume {
+        let mut manager = app_state.interlude_manager.lock().unwrap();
+        let _ = manager.set_volume(volume);
+        println!("[Audio] Updated interlude volume: {}", volume);
+    }
+
+    // 更新气氛组音量
+    if let Some(volume) = config.atmosphere_volume {
+        let mut manager = app_state.atmosphere_manager.lock().unwrap();
+        manager.set_volume(volume);
+        println!("[Audio] Updated atmosphere volume: {}", volume);
+    }
 
     Ok(true)
 }

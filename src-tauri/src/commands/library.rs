@@ -291,11 +291,20 @@ pub fn import_songs(
 ) -> Result<ImportResult, String> {
     let path = std::path::Path::new(&directory);
     if !path.exists() {
-        return Err("目录不存在".to_string());
+        return Err("路径不存在".to_string());
     }
 
-    // 扫描文件
-    let files = file_scanner::scan_directory(path, recursive)?;
+    // 判断是文件还是目录
+    let files = if path.is_file() {
+        // 单个文件
+        match file_scanner::scan_file(path) {
+            Some(file) => vec![file],
+            None => return Err("不支持的文件格式".to_string()),
+        }
+    } else {
+        // 目录
+        file_scanner::scan_directory(path, recursive)?
+    };
 
     // 分组
     let groups = file_scanner::group_files_into_songs(files);
@@ -308,7 +317,12 @@ pub fn import_songs(
         errors: Vec::new(),
     };
 
-    for group in groups {
+    // 先处理有音视频的组
+    for group in &groups {
+        if group.video.is_none() && group.vocal_audio.is_none() && group.instrumental_audio.is_none() {
+            continue;
+        }
+
         // 提取元数据
         let metadata = if let Some(ref video) = group.video {
             metadata_extractor::extract_metadata(&video.path)
@@ -374,6 +388,59 @@ pub fn import_songs(
         }
     }
 
+    // 处理独立的歌词文件（匹配到数据库中已有的歌曲）
+    for group in &groups {
+        if group.video.is_some() || group.vocal_audio.is_some() || group.instrumental_audio.is_some() {
+            continue;
+        }
+
+        // 只处理有歌词但没有音视频的组
+        if let Some(ref lyrics) = group.lyrics {
+            let base_name = &group.base_name;
+            let lyrics_format = metadata_extractor::detect_lyrics_format(&lyrics.path);
+
+            println!("[Library] Processing standalone lyrics: '{}' (base_name: '{}')", lyrics.file_name, base_name);
+
+            // 尝试匹配已有歌曲（不区分大小写）
+            let matched: Option<i64> = conn
+                .query_row(
+                    "SELECT id FROM songs WHERE title = ? COLLATE NOCASE OR title LIKE ? COLLATE NOCASE LIMIT 1",
+                    rusqlite::params![base_name, format!("%{}%", base_name)],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            if let Some(song_id) = matched {
+                // 检查是否已有歌词
+                let has_lyrics: bool = conn
+                    .query_row(
+                        "SELECT lyrics_path IS NOT NULL FROM songs WHERE id = ?",
+                        [song_id],
+                        |row| row.get::<_, i32>(0).map(|v| v == 1),
+                    )
+                    .unwrap_or(false);
+
+                if has_lyrics {
+                    println!("[Library] Song id {} already has lyrics, skipping", song_id);
+                    result.skipped += 1;
+                } else {
+                    conn.execute(
+                        "UPDATE songs SET lyrics_path = ?, lyrics_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        rusqlite::params![lyrics.path.to_string_lossy().to_string(), lyrics_format, song_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+
+                    result.success += 1;
+                    println!("[Library] Matched lyrics '{}' to existing song id {}", base_name, song_id);
+                }
+            } else {
+                // 没有匹配的歌曲，跳过
+                println!("[Library] No matching song found for lyrics '{}'", base_name);
+                result.skipped += 1;
+            }
+        }
+    }
+
     Ok(result)
 }
 
@@ -390,14 +457,62 @@ pub fn import_single_file(
     let scanned = file_scanner::scan_file(path)
         .ok_or("不支持的文件格式")?;
 
+    let conn = crate::db::get_connection(&db);
+
+    // 如果是歌词文件，尝试匹配已有歌曲
+    if scanned.file_type == file_scanner::FileType::Lyrics {
+        let base_name = file_scanner::extract_base_name(&scanned.file_name);
+        let lyrics_format = metadata_extractor::detect_lyrics_format(&scanned.path);
+
+        println!("[Library] Trying to match lyrics file: '{}' (base_name: '{}')", scanned.file_name, base_name);
+
+        // 尝试通过标题匹配歌曲（精确匹配或模糊匹配）
+        let song_id: Option<i64> = conn
+            .query_row(
+                "SELECT id, title FROM songs WHERE title = ? COLLATE NOCASE OR title LIKE ? COLLATE NOCASE LIMIT 1",
+                rusqlite::params![&base_name, format!("%{}%", &base_name)],
+                |row| {
+                    let id: i64 = row.get(0)?;
+                    let title: String = row.get(1)?;
+                    println!("[Library] Matched song: id={}, title='{}'", id, title);
+                    Ok(id)
+                },
+            )
+            .ok();
+
+        if let Some(id) = song_id {
+            // 找到匹配的歌曲，更新歌词
+            conn.execute(
+                "UPDATE songs SET lyrics_path = ?, lyrics_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                rusqlite::params![&file_path, lyrics_format, id],
+            )
+            .map_err(|e| e.to_string())?;
+
+            println!("[Library] Successfully matched lyrics '{}' to song id {}", &base_name, id);
+            return Ok(id);
+        }
+
+        // 没有找到匹配的歌曲，列出数据库中的歌曲标题用于调试
+        let songs: Vec<String> = conn
+            .prepare("SELECT title FROM songs LIMIT 10")
+            .ok()
+            .and_then(|mut stmt| {
+                stmt.query_map([], |row| row.get(0))
+                    .ok()
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>().ok())
+            })
+            .unwrap_or_default();
+        println!("[Library] No match found. Database songs: {:?}", songs);
+
+        return Err(format!("未找到与歌词文件 '{}' 匹配的歌曲", &base_name));
+    }
+
     // 提取元数据
     let metadata = metadata_extractor::extract_metadata(&scanned.path);
 
     let title = metadata.as_ref()
         .and_then(|m| m.title.clone())
         .unwrap_or_else(|| file_scanner::extract_base_name(&scanned.file_name));
-
-    let conn = crate::db::get_connection(&db);
 
     let (video_path, vocal_path, inst_path) = match scanned.file_type {
         file_scanner::FileType::Video => (Some(file_path.clone()), None, None),
@@ -521,4 +636,105 @@ pub fn get_languages(db: State<Database>) -> Result<Vec<String>, String> {
         .map_err(|e| e.to_string())?;
 
     Ok(languages)
+}
+
+/// 为歌曲导入原唱音频
+#[tauri::command]
+pub fn import_vocal(db: State<Database>, songId: i64, filePath: String) -> Result<bool, String> {
+    let path = std::path::Path::new(&filePath);
+    if !path.exists() {
+        return Err("文件不存在".to_string());
+    }
+
+    let conn = crate::db::get_connection(&db);
+
+    conn.execute(
+        "UPDATE songs SET vocal_audio_path = ?, has_vocal = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        rusqlite::params![filePath, songId],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(true)
+}
+
+/// 为歌曲导入歌词文件
+#[tauri::command]
+pub fn import_lyrics(db: State<Database>, songId: i64, filePath: String) -> Result<bool, String> {
+    let path = std::path::Path::new(&filePath);
+    if !path.exists() {
+        return Err("文件不存在".to_string());
+    }
+
+    // 检测歌词格式
+    let lyrics_format = metadata_extractor::detect_lyrics_format(path);
+
+    let conn = crate::db::get_connection(&db);
+
+    conn.execute(
+        "UPDATE songs SET lyrics_path = ?, lyrics_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        rusqlite::params![filePath, lyrics_format, songId],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(true)
+}
+
+/// 更新歌曲元数据（同时更新数据库和文件）
+#[tauri::command]
+pub fn update_song_metadata(
+    db: State<Database>,
+    songId: i64,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+) -> Result<bool, String> {
+    let conn = crate::db::get_connection(&db);
+
+    // 获取歌曲信息
+    let (video_path, vocal_path, inst_path): (Option<String>, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT video_path, vocal_audio_path, instrumental_audio_path FROM songs WHERE id = ?",
+            [songId],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|e| format!("歌曲不存在: {}", e))?;
+
+    // 确定要修改的文件（优先修改音频文件）
+    let file_to_update = vocal_path
+        .or(inst_path)
+        .or(video_path);
+
+    // 创建元数据
+    let metadata = metadata_extractor::SongMetadata {
+        title: title.clone(),
+        artist: artist.clone(),
+        album: album.clone(),
+        ..Default::default()
+    };
+
+    // 尝试写入文件元数据
+    if let Some(ref file_path_str) = file_to_update {
+        let file_path = std::path::Path::new(file_path_str);
+        if file_path.exists() && metadata_extractor::can_write_metadata(file_path) {
+            match metadata_extractor::write_metadata(file_path, &metadata) {
+                Ok(_) => {
+                    println!("[Library] Successfully updated metadata in file: {}", file_path_str);
+                }
+                Err(e) => {
+                    println!("[Library] Warning: Failed to update file metadata: {}", e);
+                    // 文件写入失败不影响数据库更新
+                }
+            }
+        }
+    }
+
+    // 更新数据库
+    conn.execute(
+        "UPDATE songs SET title = COALESCE(?1, title), artist = COALESCE(?2, artist), \
+         album = COALESCE(?3, album), updated_at = CURRENT_TIMESTAMP WHERE id = ?4",
+        rusqlite::params![title, artist, album, songId],
+    )
+    .map_err(|e| format!("更新数据库失败: {}", e))?;
+
+    Ok(true)
 }

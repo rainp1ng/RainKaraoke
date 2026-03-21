@@ -10,6 +10,10 @@ import type {
   EffectChainConfig,
   EffectPreset,
   PlaybackState,
+  LiveAudioConfig,
+  LiveAudioState,
+  RecordingResult,
+  DeviceInfo,
 } from '@/types'
 
 // ============ 媒体库 API ============
@@ -146,6 +150,23 @@ export const libraryApi = {
   async getLanguages(): Promise<string[]> {
     return invoke('get_languages')
   },
+
+  async importVocal(songId: number, filePath: string): Promise<boolean> {
+    return invoke('import_vocal', { songId, filePath })
+  },
+
+  async importLyrics(songId: number, filePath: string): Promise<boolean> {
+    return invoke('import_lyrics', { songId, filePath })
+  },
+
+  async updateSongMetadata(
+    songId: number,
+    title?: string,
+    artist?: string,
+    album?: string
+  ): Promise<boolean> {
+    return invoke('update_song_metadata', { songId, title, artist, album })
+  },
 }
 
 // ============ 播放控制 API ============
@@ -183,6 +204,10 @@ export const playbackApi = {
     return invoke('set_speed', { speed })
   },
 
+  async setVolume(volume: number): Promise<boolean> {
+    return invoke('set_volume', { volume })
+  },
+
   async getPlaybackState(): Promise<PlaybackState> {
     return invoke('get_playback_state')
   },
@@ -205,6 +230,14 @@ export const queueApi = {
 
   async moveQueueItem(queueId: number, newPosition: number): Promise<boolean> {
     return invoke('move_queue_item', { queueId, newPosition })
+  },
+
+  async moveToTop(queueId: number): Promise<boolean> {
+    return invoke('move_to_top', { queueId })
+  },
+
+  async moveToNext(queueId: number, currentSongId: number): Promise<boolean> {
+    return invoke('move_to_next', { queueId, currentSongId })
   },
 
   async clearQueue(): Promise<boolean> {
@@ -231,7 +264,7 @@ export const interludeApi = {
     return invoke('add_interlude_track', {
       track: {
         title: track.title,
-        file_path: track.filePath,
+        filePath: track.filePath,
         volume: track.volume,
       }
     })
@@ -253,6 +286,22 @@ export const interludeApi = {
   }> {
     return invoke('get_interlude_state')
   },
+
+  async playInterlude(): Promise<boolean> {
+    return invoke('play_interlude')
+  },
+
+  async pauseInterlude(): Promise<boolean> {
+    return invoke('pause_interlude')
+  },
+
+  async resumeInterlude(): Promise<boolean> {
+    return invoke('resume_interlude')
+  },
+
+  async stopInterlude(): Promise<boolean> {
+    return invoke('stop_interlude')
+  },
 }
 
 // ============ 气氛组 API ============
@@ -266,6 +315,7 @@ export const atmosphereApi = {
     name: string
     filePath: string
     volume?: number
+    midiMessageType?: string
     midiNote?: number
     midiChannel?: number
     isOneShot?: boolean
@@ -274,11 +324,12 @@ export const atmosphereApi = {
     return invoke('add_atmosphere_sound', {
       sound: {
         name: sound.name,
-        file_path: sound.filePath,
+        filePath: sound.filePath,
         volume: sound.volume,
-        midi_note: sound.midiNote,
-        midi_channel: sound.midiChannel,
-        is_one_shot: sound.isOneShot,
+        midiMessageType: sound.midiMessageType,
+        midiNote: sound.midiNote,
+        midiChannel: sound.midiChannel,
+        isOneShot: sound.isOneShot,
         color: sound.color,
       }
     })
@@ -288,6 +339,7 @@ export const atmosphereApi = {
     id: number
     name?: string
     volume?: number
+    midiMessageType?: string
     midiNote?: number
     midiChannel?: number
     isOneShot?: boolean
@@ -299,11 +351,12 @@ export const atmosphereApi = {
         id: sound.id,
         name: sound.name,
         volume: sound.volume,
-        midi_note: sound.midiNote,
-        midi_channel: sound.midiChannel,
-        is_one_shot: sound.isOneShot,
+        midiMessageType: sound.midiMessageType,
+        midiNote: sound.midiNote,
+        midiChannel: sound.midiChannel,
+        isOneShot: sound.isOneShot,
         color: sound.color,
-        sort_order: sound.sortOrder,
+        sortOrder: sound.sortOrder,
       }
     })
   },
@@ -318,6 +371,10 @@ export const atmosphereApi = {
 
   async stopAtmosphereSound(id?: number): Promise<boolean> {
     return invoke('stop_atmosphere_sound', { id })
+  },
+
+  async setAtmosphereVolume(volume: number): Promise<boolean> {
+    return invoke('set_atmosphere_volume', { volume })
   },
 }
 
@@ -343,6 +400,14 @@ export const midiApi = {
   }> {
     return invoke('get_midi_status')
   },
+
+  async getSavedMidiDevice(): Promise<string | null> {
+    return invoke('get_saved_midi_device')
+  },
+
+  async autoConnectMidi(): Promise<boolean> {
+    return invoke('auto_connect_midi')
+  },
 }
 
 // ============ 音频设置 API ============
@@ -365,19 +430,20 @@ export const audioApi = {
   async saveAudioConfig(config: Partial<AudioConfig>): Promise<boolean> {
     return invoke('save_audio_config', {
       config: {
-        default_output_device: config.defaultOutputDevice,
-        interlude_output_device: config.interludeOutputDevice,
-        atmosphere_output_device: config.atmosphereOutputDevice,
-        master_volume: config.masterVolume,
-        interlude_volume: config.interludeVolume,
-        atmosphere_volume: config.atmosphereVolume,
-        ducking_enabled: config.duckingEnabled,
-        ducking_threshold: config.duckingThreshold,
-        ducking_ratio: config.duckingRatio,
-        ducking_attack_ms: config.duckingAttackMs,
-        ducking_release_ms: config.duckingReleaseMs,
-        midi_device_id: config.midiDeviceId,
-        midi_enabled: config.midiEnabled,
+        defaultOutputDevice: config.defaultOutputDevice,
+        interludeOutputDevice: config.interludeOutputDevice,
+        atmosphereOutputDevice: config.atmosphereOutputDevice,
+        masterVolume: config.masterVolume,
+        interludeVolume: config.interludeVolume,
+        atmosphereVolume: config.atmosphereVolume,
+        duckingEnabled: config.duckingEnabled,
+        duckingThreshold: config.duckingThreshold,
+        duckingRatio: config.duckingRatio,
+        duckingAttackMs: config.duckingAttackMs,
+        duckingReleaseMs: config.duckingReleaseMs,
+        duckingRecoveryDelay: config.duckingRecoveryDelay,
+        midiDeviceId: config.midiDeviceId,
+        midiEnabled: config.midiEnabled,
       }
     })
   },
@@ -393,13 +459,21 @@ export const effectApi = {
   async saveEffectChainConfig(config: Partial<EffectChainConfig>): Promise<boolean> {
     return invoke('save_effect_chain_config', {
       config: {
-        input_device_id: config.inputDeviceId,
-        input_volume: config.inputVolume,
-        monitor_device_id: config.monitorDeviceId,
-        stream_device_id: config.streamDeviceId,
-        monitor_volume: config.monitorVolume,
-        stream_volume: config.streamVolume,
-        bypass_all: config.bypassAll,
+        inputDeviceId: config.inputDeviceId,
+        inputVolume: config.inputVolume,
+        monitorDeviceId: config.monitorDeviceId,
+        streamDeviceId: config.streamDeviceId,
+        monitorVolume: config.monitorVolume,
+        streamVolume: config.streamVolume,
+        bypassAll: config.bypassAll,
+        vocalInputDevice: config.vocalInputDevice,
+        instrumentInputDevice: config.instrumentInputDevice,
+        vocalInputChannel: config.vocalInputChannel,
+        instrumentInputChannel: config.instrumentInputChannel,
+        vocalVolume: config.vocalVolume,
+        instrumentVolume: config.instrumentVolume,
+        effectInput: config.effectInput,
+        recordingPath: config.recordingPath,
       }
     })
   },
@@ -416,8 +490,8 @@ export const effectApi = {
   }): Promise<boolean> {
     return invoke('set_effect_slot', {
       slot: {
-        slot_index: slot.slotIndex,
-        effect_type: slot.effectType,
+        slotIndex: slot.slotIndex,
+        effectType: slot.effectType,
         enabled: slot.enabled,
         parameters: slot.parameters ? JSON.stringify(slot.parameters) : null,
       }
@@ -426,8 +500,10 @@ export const effectApi = {
 
   async updateEffectParameters(slotIndex: number, parameters: Record<string, any>): Promise<boolean> {
     return invoke('update_effect_parameters', {
-      slotIndex,
-      parameters: JSON.stringify(parameters)
+      params: {
+        slotIndex,
+        parameters: JSON.stringify(parameters)
+      }
     })
   },
 
@@ -451,16 +527,116 @@ export const effectApi = {
     return invoke('save_effect_preset', { name, description })
   },
 
-  async loadEffectPreset(presetId: number): Promise<boolean> {
-    return invoke('load_effect_preset', { presetId })
-  },
-
   async deleteEffectPreset(presetId: number): Promise<boolean> {
     return invoke('delete_effect_preset', { presetId })
   },
 
   async bypassAllEffects(bypass: boolean): Promise<boolean> {
     return invoke('bypass_all_effects', { bypass })
+  },
+
+  // 音频设备列表（新 API，包含通道数）
+  async listAudioInputDevices(): Promise<DeviceInfo[]> {
+    return invoke('list_audio_input_devices')
+  },
+
+  async listAudioOutputDevices(): Promise<DeviceInfo[]> {
+    return invoke('list_audio_output_devices')
+  },
+
+  // 实时音频路由
+  async startLiveAudio(config: LiveAudioConfig): Promise<boolean> {
+    return invoke('start_live_audio', { config })
+  },
+
+  async stopLiveAudio(): Promise<boolean> {
+    return invoke('stop_live_audio')
+  },
+
+  async setEffectBypass(bypass: boolean): Promise<boolean> {
+    return invoke('set_effect_bypass', { bypass })
+  },
+
+  async getOutputLevel(): Promise<number> {
+    return invoke('get_output_level')
+  },
+
+  async getLevelMeterValue(slotIndex: number): Promise<number | null> {
+    return invoke('get_level_meter_value', { slotIndex })
+  },
+
+  async moveEffectUp(slotIndex: number): Promise<boolean> {
+    return invoke('move_effect_up', { slotIndex })
+  },
+
+  async moveEffectDown(slotIndex: number): Promise<boolean> {
+    return invoke('move_effect_down', { slotIndex })
+  },
+
+  async getLiveAudioState(): Promise<LiveAudioState> {
+    return invoke('get_live_audio_state')
+  },
+
+  async setVocalVolume(volume: number): Promise<boolean> {
+    return invoke('set_vocal_volume', { volume })
+  },
+
+  async setInstrumentVolume(volume: number): Promise<boolean> {
+    return invoke('set_instrument_volume', { volume })
+  },
+
+  async setEffectInput(effectInput: 'vocal' | 'instrument' | 'none'): Promise<boolean> {
+    return invoke('set_effect_input', { effectInput })
+  },
+
+  async setVocalChannel(channel: number): Promise<boolean> {
+    return invoke('set_vocal_channel', { channel })
+  },
+
+  async setInstrumentChannel(channel: number): Promise<boolean> {
+    return invoke('set_instrument_channel', { channel })
+  },
+
+  // 录音控制
+  async startRecording(vocalPath?: string, instrumentPath?: string): Promise<boolean> {
+    return invoke('start_recording', {
+      config: {
+        vocal_path: vocalPath,
+        instrument_path: instrumentPath,
+      }
+    })
+  },
+
+  async stopRecording(): Promise<RecordingResult> {
+    return invoke('stop_recording')
+  },
+
+  async getRecordingState(): Promise<boolean> {
+    return invoke('get_recording_state')
+  },
+
+  // 效果器 MIDI 学习
+  async setEffectMidi(slotIndex: number, midiNote: number, midiChannel: number): Promise<boolean> {
+    return invoke('set_effect_midi', { slotIndex, midiNote, midiChannel })
+  },
+
+  async clearEffectMidi(slotIndex: number): Promise<boolean> {
+    return invoke('clear_effect_midi', { slotIndex })
+  },
+
+  // Ducking 调试
+  async getDuckingDebugState(): Promise<{
+    enabled: boolean
+    interludePlaying: boolean
+    isDucking: boolean
+    threshold: number
+    ratio: number
+    recoveryDelay: number
+    releaseStart: number
+    elapsedSinceReleaseStart: number
+    remainingTime: number
+  }> {
+    return invoke('get_ducking_debug_state')
   },
 }
 

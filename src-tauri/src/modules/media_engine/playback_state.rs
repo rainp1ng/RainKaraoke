@@ -7,6 +7,16 @@ pub enum PlaybackStatus {
     Paused,
 }
 
+impl PlaybackStatus {
+    pub fn to_string(&self) -> String {
+        match self {
+            PlaybackStatus::Idle => "idle".to_string(),
+            PlaybackStatus::Playing => "playing".to_string(),
+            PlaybackStatus::Paused => "paused".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaybackState {
     pub status: PlaybackStatus,
@@ -18,6 +28,7 @@ pub struct PlaybackState {
     pub is_vocal: bool,
     pub pitch: i32,
     pub speed: f64,
+    pub volume: f64,
 }
 
 impl Default for PlaybackState {
@@ -32,6 +43,7 @@ impl Default for PlaybackState {
             is_vocal: true,
             pitch: 0,
             speed: 1.0,
+            volume: 0.8,
         }
     }
 }

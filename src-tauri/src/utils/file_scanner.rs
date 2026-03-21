@@ -161,22 +161,29 @@ pub fn extract_base_name(file_name: &str) -> String {
         .map(|(name, _)| name)
         .unwrap_or(file_name);
 
-    let lower_name = name.to_lowercase();
-
-    // 移除已知的标识符
+    // 移除已知的标识符（不区分大小写）
     let mut cleaned = name.to_string();
     for keyword in INSTRUMENTAL_KEYWORDS.iter().chain(VOCAL_KEYWORDS.iter()) {
-        let pattern1 = format!("_{}", keyword);
-        let pattern2 = format!("-{}", keyword);
-        let pattern3 = format!(" {}", keyword);
-        let pattern4 = format!("[{}]", keyword);
-        let pattern5 = format!("({})", keyword);
+        // 构建要匹配的模式（带分隔符）
+        let patterns = vec![
+            format!("_{}", keyword),
+            format!("-{}", keyword),
+            format!(" {}", keyword),
+            format!("[{}]", keyword),
+            format!("({})", keyword),
+        ];
 
-        cleaned = cleaned.replace(&pattern1, "");
-        cleaned = cleaned.replace(&pattern2, "");
-        cleaned = cleaned.replace(&pattern3, "");
-        cleaned = cleaned.replace(&pattern4, "");
-        cleaned = cleaned.replace(&pattern5, "");
+        for pattern in patterns {
+            // 不区分大小写查找并替换
+            let lower_cleaned = cleaned.to_lowercase();
+            let lower_pattern = pattern.to_lowercase();
+            if let Some(pos) = lower_cleaned.find(&lower_pattern) {
+                let end = pos + pattern.len();
+                if end <= cleaned.len() {
+                    cleaned = format!("{}{}", &cleaned[..pos], &cleaned[end..]);
+                }
+            }
+        }
     }
 
     cleaned.trim().to_string()
@@ -233,16 +240,20 @@ pub fn group_files_into_songs(files: Vec<ScannedFile>) -> Vec<SongGroup> {
         }
     }
 
-    // 如果没有原唱但有其他音频，将第一个其他音频作为原唱
+    // 如果没有伴奏但有其他音频，将第一个其他音频作为伴奏（默认导入的是伴奏）
     for group in groups.values_mut() {
+        if group.instrumental_audio.is_none() && !group.other_audio.is_empty() {
+            group.instrumental_audio = group.other_audio.pop();
+        }
+        // 如果仍有其他音频且没有原唱，可以作为原唱候选
         if group.vocal_audio.is_none() && !group.other_audio.is_empty() {
             group.vocal_audio = group.other_audio.pop();
         }
     }
 
-    // 过滤掉没有音视频文件的组
+    // 过滤掉没有任何有用文件的组（保留有音视频或歌词的组）
     groups.into_values()
-        .filter(|g| g.video.is_some() || g.vocal_audio.is_some() || g.instrumental_audio.is_some())
+        .filter(|g| g.video.is_some() || g.vocal_audio.is_some() || g.instrumental_audio.is_some() || g.lyrics.is_some())
         .collect()
 }
 

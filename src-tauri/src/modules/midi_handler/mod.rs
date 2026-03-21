@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use midir::{MidiInput, MidiInputConnection, MidiInputPort};
+use midir::{MidiInput, MidiInputConnection};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
@@ -10,13 +10,24 @@ pub struct MidiDevice {
     pub name: String,
 }
 
+/// MIDI 消息类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum MidiMessageType {
+    Note,
+    CC,
+    PC,
+}
+
 /// MIDI 事件
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MidiEvent {
+    pub message_type: MidiMessageType,
     pub channel: u8,
-    pub note: u8,
-    pub velocity: u8,
-    pub is_note_on: bool,
+    pub data1: u8,   // note for NOTE, controller for CC, program for PC
+    pub data2: u8,   // velocity for NOTE, value for CC
+    pub is_on: bool, // for NOTE: true = NoteOn, false = NoteOff
 }
 
 /// MIDI 处理器
@@ -91,31 +102,67 @@ impl MidiHandler {
             .connect(
                 &port,
                 "RainKaraoke",
-                move |timestamp, message, _| {
+                move |_timestamp, message, _| {
                     // 解析 MIDI 消息
-                    if message.len() >= 3 {
-                        let status = message[0];
-                        let channel = status & 0x0F;
+                    if message.is_empty() {
+                        return;
+                    }
+
+                    let status = message[0];
+                    let channel = status & 0x0F;
+                    let status_byte = status & 0xF0;
+
+                    // NOTE ON (0x90) or NOTE OFF (0x80)
+                    if (status_byte == 0x90 || status_byte == 0x80) && message.len() >= 3 {
                         let note = message[1];
                         let velocity = message[2];
+                        let is_note_on = status_byte == 0x90 && velocity > 0;
 
-                        let is_note_on = (status & 0xF0) == 0x90 && velocity > 0;
-                        let is_note_off = (status & 0xF0) == 0x80 || ((status & 0xF0) == 0x90 && velocity == 0);
+                        let event = MidiEvent {
+                            message_type: MidiMessageType::Note,
+                            channel,
+                            data1: note,
+                            data2: velocity,
+                            is_on: is_note_on,
+                        };
 
-                        if is_note_on || is_note_off {
-                            let event = MidiEvent {
-                                channel,
-                                note,
-                                velocity,
-                                is_note_on,
-                            };
-
-                            if let Some(ref handle) = app_handle {
-                                let _ = handle.emit("midi:note-event", &event);
-                            }
+                        if let Some(ref handle) = app_handle {
+                            let _ = handle.emit("midi:event", &event);
                         }
                     }
-                    let _ = timestamp;
+                    // CONTROL CHANGE (0xB0)
+                    else if status_byte == 0xB0 && message.len() >= 3 {
+                        let controller = message[1];
+                        let value = message[2];
+
+                        let event = MidiEvent {
+                            message_type: MidiMessageType::CC,
+                            channel,
+                            data1: controller,
+                            data2: value,
+                            is_on: true,
+                        };
+
+                        if let Some(ref handle) = app_handle {
+                            let _ = handle.emit("midi:event", &event);
+                        }
+                    }
+                    // PROGRAM CHANGE (0xC0)
+                    else if status_byte == 0xC0 && message.len() >= 2 {
+                        let program = message[1];
+
+                        let event = MidiEvent {
+                            message_type: MidiMessageType::PC,
+                            channel,
+                            data1: program,
+                            data2: 0,
+                            is_on: true,
+                        };
+
+                        if let Some(ref handle) = app_handle {
+                            let _ = handle.emit("midi:event", &event);
+                        }
+                    }
                 },
                 (),
             )

@@ -13,7 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -24,9 +24,11 @@ tokio = { version = "1", features = ["full"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 # 音频处理
-rodio = { version = "0.19", default-features = false, features = ["mp3", "wav", "flac", "vorbis"] }
+rodio = { version = "0.19", default-features = false, features = ["mp3", "wav", "flac", "vorbis", "symphonia-all"] }
 cpal = "0.15"
 rubato = "0.15"
+rustfft = "6.1"
+realfft = "3.3"
 
 # MIDI
 midir = "0.9"

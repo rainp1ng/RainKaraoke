@@ -1,5 +1,11 @@
+pub mod recorder;
+pub mod live_router;
+
 use cpal::traits::{DeviceTrait, HostTrait};
 use serde::{Deserialize, Serialize};
+
+pub use recorder::{AudioRecorder, DualTrackRecorder, RecordingState};
+pub use live_router::{LiveAudioManager, LiveAudioConfig, LiveAudioState, EffectInput, GlobalAudioState, AudioStreams, DeviceInfo};
 
 /// 音频设备信息
 #[derive(Debug, Clone, Serialize, Deserialize)]

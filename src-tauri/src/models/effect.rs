@@ -8,6 +8,10 @@ pub struct EffectSlot {
     pub effect_type: String,
     pub is_enabled: bool,
     pub parameters: String,  // JSON
+    /// MIDI 音符编号 (0-127)，用于通过 MIDI 控制开关
+    pub midi_note: Option<i32>,
+    /// MIDI 通道 (0-15)
+    pub midi_channel: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +24,15 @@ pub struct EffectChainConfig {
     pub monitor_volume: f32,
     pub stream_volume: f32,
     pub bypass_all: bool,
+    // 新增字段
+    pub vocal_input_device: Option<String>,
+    pub instrument_input_device: Option<String>,
+    pub vocal_input_channel: i32,
+    pub instrument_input_channel: i32,
+    pub vocal_volume: f32,
+    pub instrument_volume: f32,
+    pub effect_input: String,
+    pub recording_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -75,7 +88,9 @@ pub fn get_default_parameters(effect_type: &str) -> String {
             "low": {"gain": 0, "frequency": 100, "q": 0.7},
             "lowMid": {"gain": 0, "frequency": 500, "q": 0.7},
             "highMid": {"gain": 0, "frequency": 4000, "q": 0.7},
-            "high": {"gain": 0, "frequency": 12000, "q": 0.7}
+            "high": {"gain": 0, "frequency": 12000, "q": 0.7},
+            "lowCut": {"enabled": false, "frequency": 80},
+            "highCut": {"enabled": false, "frequency": 12000}
         }).to_string(),
         "compressor" => serde_json::json!({
             "threshold": -24,
@@ -105,6 +120,9 @@ pub fn get_default_parameters(effect_type: &str) -> String {
             "attack": 1,
             "release": 50,
             "range": 40
+        }).to_string(),
+        "gain" => serde_json::json!({
+            "gainDb": 0
         }).to_string(),
         _ => "{}".to_string(),
     }

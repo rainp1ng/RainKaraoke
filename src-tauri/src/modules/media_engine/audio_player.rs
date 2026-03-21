@@ -29,14 +29,39 @@ impl AudioPlayer {
         }
     }
 
+    /// 检查文件是否是支持的音频格式
+    fn is_supported_audio_format(path: &str) -> bool {
+        let path_lower = path.to_lowercase();
+        // Rodio 支持的格式
+        path_lower.ends_with(".mp3")
+            || path_lower.ends_with(".wav")
+            || path_lower.ends_with(".flac")
+            || path_lower.ends_with(".ogg")
+            || path_lower.ends_with(".vorbis")
+            || path_lower.ends_with(".aiff")
+    }
+
     /// 加载音频文件
     pub fn load(&mut self, path: &str) -> Result<(), String> {
+        // 检查文件格式
+        if !Self::is_supported_audio_format(path) {
+            return Err(format!(
+                "不支持的音频格式: {}。支持的格式: MP3, WAV, FLAC, OGG, AIFF",
+                path
+            ));
+        }
+
         // 初始化音频输出
         if self._stream.is_none() {
             let (stream, stream_handle) = OutputStream::try_default()
                 .map_err(|e| format!("无法初始化音频输出: {}", e))?;
             self._stream = Some(stream);
             self._stream_handle = Some(stream_handle);
+        }
+
+        // 停止之前的播放
+        if let Some(sink) = self.sink.take() {
+            sink.stop();
         }
 
         // 创建新的 Sink

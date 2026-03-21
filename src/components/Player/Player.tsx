@@ -1,8 +1,11 @@
-import { Play, Pause, SkipBack, SkipForward, Volume2, Mic, MicOff } from 'lucide-react'
+import { useRef, useCallback } from 'react'
+import { Play, Pause, SkipForward, Volume2, Mic, MicOff, Repeat } from 'lucide-react'
 import { usePlaybackStore, useQueueStore } from '@/stores'
 import { formatDuration } from '@/utils/format'
 
 function Player() {
+  const progressRef = useRef<HTMLDivElement>(null)
+
   const {
     status,
     currentSong,
@@ -11,18 +14,21 @@ function Player() {
     isVocal,
     pitch,
     speed,
+    volume,
+    continuousPlay,
     play,
     pause,
     resume,
     stop,
-    seek,
     toggleVocal,
     setPitch,
     setSpeed,
-    setCurrentTime,
+    setVolume,
+    setContinuousPlay,
+    seek,
   } = usePlaybackStore()
 
-  const { items, playNext } = useQueueStore()
+  const { items, removeFromQueue, loadQueue } = useQueueStore()
 
   const isPlaying = status === 'playing'
   const isPaused = status === 'paused'
@@ -44,26 +50,36 @@ function Player() {
     stop()
   }
 
-  // 处理下一首
+  // 处理下一首 - 移除当前歌曲，播放下一首
   const handleNext = async () => {
-    if (items.length > 0) {
-      const nextItem = items[0]
-      if (nextItem.song) {
-        await play(nextItem.song)
-        await playNext()
-      }
+    if (items.length === 0) return
+
+    // 移除队列第一首
+    const currentItem = items[0]
+    await removeFromQueue(currentItem.id)
+
+    // 重新加载队列并播放新的第一首
+    await loadQueue()
+    const { items: newItems } = useQueueStore.getState()
+    if (newItems.length > 0 && newItems[0].song) {
+      play(newItems[0].song)
+    } else {
+      // 队列已空，停止播放
+      stop()
     }
   }
 
-  // 处理进度条点击
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!hasSong || duration === 0) return
+  // 点击进度条跳转
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressRef.current || duration === 0) return
 
-    const rect = e.currentTarget.getBoundingClientRect()
-    const percent = (e.clientX - rect.left) / rect.width
+    const rect = progressRef.current.getBoundingClientRect()
+    const clickX = e.clientX - rect.left
+    const percent = clickX / rect.width
     const newTime = percent * duration
+
     seek(newTime)
-  }
+  }, [duration, seek])
 
   // 检查是否有独立伴奏
   const hasInstrumental = currentSong?.hasInstrumental || false
@@ -123,7 +139,7 @@ function Player() {
               disabled={!hasSong}
               className="px-2 py-1 bg-dark-700 hover:bg-dark-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors"
             >
-              -{Math.abs(pitch - 1) > 0 ? Math.abs(pitch - 1) : ''}
+              -
             </button>
             <span className="px-2 text-sm text-dark-400 min-w-[3rem] text-center">
               {pitch > 0 ? '+' : ''}{pitch}
@@ -133,7 +149,7 @@ function Player() {
               disabled={!hasSong}
               className="px-2 py-1 bg-dark-700 hover:bg-dark-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm transition-colors"
             >
-              +{pitch + 1 > 0 ? pitch + 1 : ''}
+              +
             </button>
           </div>
 
@@ -160,8 +176,9 @@ function Player() {
           {formatDuration(Math.floor(currentTime))}
         </span>
         <div
+          ref={progressRef}
           className="flex-1 h-1.5 bg-dark-700 rounded-full overflow-hidden cursor-pointer group"
-          onClick={handleSeek}
+          onClick={handleProgressClick}
         >
           <div
             className="h-full bg-primary-500 group-hover:bg-primary-400 transition-colors rounded-full relative"
@@ -210,6 +227,18 @@ function Player() {
           >
             <SkipForward className="w-5 h-5" />
           </button>
+          {/* 连播开关 */}
+          <button
+            onClick={() => setContinuousPlay(!continuousPlay)}
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+              continuousPlay
+                ? 'bg-primary-600 hover:bg-primary-700 text-white'
+                : 'bg-dark-700 hover:bg-dark-600 text-dark-400'
+            }`}
+            title={continuousPlay ? '连播开启 - 点击关闭' : '连播关闭 - 点击开启'}
+          >
+            <Repeat className={`w-5 h-5 ${!continuousPlay ? 'opacity-50' : ''}`} />
+          </button>
         </div>
 
         {/* 音量控制 */}
@@ -220,12 +249,11 @@ function Player() {
             min="0"
             max="1"
             step="0.01"
-            defaultValue="0.8"
+            value={volume}
+            onChange={(e) => setVolume(Number(e.target.value))}
             className="w-24 h-1 bg-dark-700 rounded-full appearance-none cursor-pointer"
           />
-          <select className="bg-dark-700 text-sm rounded px-2 py-1 border-none outline-none">
-            <option>系统扬声器</option>
-          </select>
+          <span className="text-xs text-dark-400 w-8">{Math.round(volume * 100)}%</span>
         </div>
       </div>
     </div>

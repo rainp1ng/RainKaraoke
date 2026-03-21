@@ -1,6 +1,7 @@
-use tauri::State;
+use tauri::{State, Manager};
 use crate::db::Database;
 use crate::models::{InterludeTrack, NewInterludeTrack};
+use crate::modules::AppState;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,7 +63,7 @@ pub fn delete_interlude_track(db: State<Database>, id: i64) -> Result<bool, Stri
 }
 
 #[tauri::command]
-pub fn set_interlude_volume(db: State<Database>, volume: f32) -> Result<bool, String> {
+pub fn set_interlude_volume(db: State<Database>, state: State<AppState>, volume: f32) -> Result<bool, String> {
     let conn = crate::db::get_connection(&db);
 
     conn.execute(
@@ -71,17 +72,70 @@ pub fn set_interlude_volume(db: State<Database>, volume: f32) -> Result<bool, St
     )
     .map_err(|e| e.to_string())?;
 
-    // TODO: 实时更新播放音量
+    // 实时更新播放音量
+    let mut manager = state.interlude_manager.lock().unwrap();
+    manager.set_volume(volume)?;
+
     Ok(true)
 }
 
 #[tauri::command]
-pub fn get_interlude_state() -> Result<InterludeState, String> {
-    // TODO: 实现获取过场音乐状态逻辑
+pub fn get_interlude_state(state: State<AppState>) -> Result<InterludeState, String> {
+    let manager = state.interlude_manager.lock().unwrap();
+    let inner_state = manager.get_state();
+
     Ok(InterludeState {
-        is_playing: false,
-        current_track_id: None,
-        volume: 0.3,
-        ducking_active: false,
+        is_playing: inner_state.is_playing,
+        current_track_id: inner_state.current_track_id,
+        volume: inner_state.volume,
+        ducking_active: inner_state.ducking_active,
     })
+}
+
+#[tauri::command]
+pub fn play_interlude(db: State<Database>, state: State<AppState>) -> Result<bool, String> {
+    // 从数据库获取过场音乐列表
+    let conn = crate::db::get_connection(&db);
+    let tracks: Vec<crate::modules::interlude::InterludeTrack> = conn
+        .prepare("SELECT id, title, file_path, volume FROM interlude_tracks WHERE is_active = 1")
+        .map_err(|e| e.to_string())?
+        .query_map([], |row| {
+            Ok(crate::modules::interlude::InterludeTrack {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                file_path: row.get(2)?,
+                volume: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    let mut manager = state.interlude_manager.lock().unwrap();
+    manager.set_tracks(tracks);
+    manager.start_random()?;
+
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn pause_interlude(state: State<AppState>) -> Result<bool, String> {
+    let mut manager = state.interlude_manager.lock().unwrap();
+    manager.pause()?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn resume_interlude(state: State<AppState>) -> Result<bool, String> {
+    let mut manager = state.interlude_manager.lock().unwrap();
+    manager.resume()?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn stop_interlude(state: State<AppState>) -> Result<bool, String> {
+    let mut manager = state.interlude_manager.lock().unwrap();
+    manager.stop()?;
+    Ok(true)
 }

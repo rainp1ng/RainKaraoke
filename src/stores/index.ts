@@ -1,3 +1,5 @@
 export { useLibraryStore } from './libraryStore'
 export { useQueueStore } from './queueStore'
 export { usePlaybackStore } from './playbackStore'
+export { useInterludeStore } from './interludeStore'
+export { useAtmosphereStore } from './atmosphereStore'

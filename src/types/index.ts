@@ -50,12 +50,15 @@ export interface InterludeTrack {
   playCount: number
 }
 
+export type MidiMessageType = 'NOTE' | 'CC' | 'PC'
+
 export interface AtmosphereSound {
   id: number
   name: string
   filePath: string
   duration: number | null
   volume: number
+  midiMessageType: MidiMessageType
   midiNote: number | null
   midiChannel: number
   isOneShot: boolean
@@ -77,6 +80,7 @@ export interface AudioConfig {
   duckingRatio: number
   duckingAttackMs: number
   duckingReleaseMs: number
+  duckingRecoveryDelay: number // 恢复延迟（秒，1-9）
 
   midiDeviceId: string | null
   midiEnabled: boolean
@@ -90,6 +94,7 @@ export interface PlaybackState {
   isVocal: boolean
   pitch: number
   speed: number
+  volume: number
 }
 
 export interface InterludeState {
@@ -114,15 +119,15 @@ export interface AudioDevice {
 }
 
 export interface LyricsLine {
-  time: number      // 毫秒
-  duration?: number // 毫秒
+  time: number
+  duration?: number
   text: string
   words?: LyricsWord[]
 }
 
 export interface LyricsWord {
-  time: number      // 毫秒
-  duration: number  // 毫秒
+  time: number
+  duration: number
   text: string
 }
 
@@ -134,6 +139,7 @@ export interface Lyrics {
 // ============ 效果器链类型 ============
 
 export type EffectType =
+  | 'gain'
   | 'reverb'
   | 'chorus'
   | 'eq'
@@ -146,9 +152,13 @@ export type EffectType =
 export interface EffectSlot {
   id: number
   slotIndex: number
-  effectType: EffectType
+  effectType: string
   isEnabled: boolean
   parameters: Record<string, any>
+  /** MIDI 音符编号 (0-127)，用于通过 MIDI 控制开关 */
+  midiNote: number | null
+  /** MIDI 通道 (0-15) */
+  midiChannel: number
 }
 
 export interface EffectChainConfig {
@@ -159,6 +169,14 @@ export interface EffectChainConfig {
   monitorVolume: number
   streamVolume: number
   bypassAll: boolean
+  vocalInputDevice: string | null
+  instrumentInputDevice: string | null
+  vocalInputChannel: number
+  instrumentInputChannel: number
+  vocalVolume: number
+  instrumentVolume: number
+  effectInput: 'vocal' | 'instrument' | 'none'
+  recordingPath: string | null
 }
 
 export interface EffectPreset {
@@ -168,78 +186,53 @@ export interface EffectPreset {
   isDefault: boolean
 }
 
-// 效果器参数类型
-export interface ReverbParams {
-  roomSize: number      // 0-100
-  damping: number       // 0-100
-  wetLevel: number      // 0-100
-  dryLevel: number      // 0-100
-  preDelay: number      // 0-100 ms
+// 设备信息（包含通道数）
+export interface DeviceInfo {
+  name: string
+  channels: number
+  sampleRate: number
+  isDefault: boolean
 }
 
-export interface ChorusParams {
-  rate: number          // 0.1-10 Hz
-  depth: number         // 0-100 %
-  mix: number           // 0-100 %
-  voices: number        // 1-8
-  spread: number        // 0-100 %
+// 实时音频配置
+export interface LiveAudioConfig {
+  vocalInputDevice: string | null
+  vocalInputChannel: number
+  instrumentInputDevice: string | null
+  instrumentInputChannel: number
+  monitorOutputDevice: string
+  streamOutputDevice: string | null
+  vocalVolume: number
+  instrumentVolume: number
+  effectInput: 'vocal' | 'instrument' | 'none'
+  monitorVolume: number
+  streamVolume: number
 }
 
-export interface EQBand {
-  gain: number          // -12 to +12 dB
-  frequency: number     // Hz
-  q: number             // 0.1-10
+// 实时音频状态
+export interface LiveAudioState {
+  isRunning: boolean
+  config: LiveAudioConfig
+  vocalRecording: boolean
+  instrumentRecording: boolean
 }
 
-export interface EQParams {
-  low: EQBand
-  lowMid: EQBand
-  highMid: EQBand
-  high: EQBand
-}
-
-export interface CompressorParams {
-  threshold: number     // -60 to 0 dB
-  ratio: number         // 1-20
-  attack: number        // 0.1-100 ms
-  release: number       // 10-1000 ms
-  makeupGain: number    // 0-24 dB
-}
-
-export interface DelayParams {
-  time: number          // 1-1000 ms
-  feedback: number      // 0-90 %
-  mix: number           // 0-100 %
-  pingPong: boolean
-}
-
-export interface DeEsserParams {
-  frequency: number     // 2000-12000 Hz
-  threshold: number     // -40 to 0 dB
-  range: number         // 0-24 dB
-}
-
-export interface ExciterParams {
-  frequency: number     // 2000-16000 Hz
-  harmonics: number     // 0-100 %
-  mix: number           // 0-100 %
-}
-
-export interface NoiseGateParams {
-  threshold: number     // -80 to -20 dB
-  attack: number        // 0.1-50 ms
-  release: number       // 10-500 ms
-  range: number         // 0-80 dB
+// 录音结果
+export interface RecordingResult {
+  vocalPath: string | null
+  instrumentPath: string | null
 }
 
 // 效果器类型信息
-export const EFFECT_TYPES: { type: EffectType; name: string; icon: string }[] = [
-  { type: 'reverb', name: '混响', icon: 'Waves' },
-  { type: 'chorus', name: '合唱', icon: 'Users' },
+export const EFFECT_TYPES: { type: string; name: string; icon: string }[] = [
+  { type: 'gain', name: '增益', icon: 'Volume2' },
   { type: 'eq', name: '均衡器', icon: 'Sliders' },
   { type: 'compressor', name: '压缩器', icon: 'ArrowDownWideNarrow' },
-  { type: 'delay', name: '延迟', icon: 'Timer' },
   { type: 'deesser', name: '去齿音', icon: 'VolumeX' },
   { type: 'exciter', name: '激励器', icon: 'Sparkles' },
+  { type: 'reverb', name: '混响', icon: 'Waves' },
+  { type: 'chorus', name: '合唱', icon: 'Users' },
+  { type: 'delay', name: '延迟', icon: 'Timer' },
   { type: 'gate', name: '噪声门', icon: 'DoorClosed' },
+  { type: 'levelmeter', name: '电平表', icon: 'Activity' },
 ]

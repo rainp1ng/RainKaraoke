@@ -1,23 +1,28 @@
 import { create } from 'zustand'
-import type { QueueItem, Song } from '@/types'
+import type { QueueItem } from '@/types'
 import { queueApi, libraryApi } from '@/lib/api'
 
 interface QueueState {
   items: QueueItem[]
   isLoading: boolean
+  error: string | null
 
   loadQueue: () => Promise<void>
-  addToQueue: (songId: number) => Promise<void>
+  addToQueue: (songId: number) => Promise<boolean>
   addManyToQueue: (songIds: number[]) => Promise<void>
   removeFromQueue: (queueId: number) => Promise<void>
   moveItem: (queueId: number, newPosition: number) => Promise<void>
+  moveToTop: (queueId: number) => Promise<void>
+  moveToNext: (queueId: number, currentSongId: number) => Promise<void>
   clearQueue: () => Promise<void>
   playNext: () => Promise<void>
+  clearError: () => void
 }
 
 export const useQueueStore = create<QueueState>((set, get) => ({
   items: [],
   isLoading: false,
+  error: null,
 
   loadQueue: async () => {
     set({ isLoading: true })
@@ -43,9 +48,17 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     try {
       await queueApi.addToQueue(songId)
       await get().loadQueue()
+      set({ error: null })
+      return true
     } catch (error) {
-      console.error('Failed to add to queue:', error)
+      const message = error instanceof Error ? error.message : String(error)
+      set({ error: message })
+      return false
     }
+  },
+
+  clearError: () => {
+    set({ error: null })
   },
 
   addManyToQueue: async (songIds: number[]) => {
@@ -76,6 +89,24 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       await get().loadQueue()
     } catch (error) {
       console.error('Failed to move queue item:', error)
+    }
+  },
+
+  moveToTop: async (queueId: number) => {
+    try {
+      await queueApi.moveToTop(queueId)
+      await get().loadQueue()
+    } catch (error) {
+      console.error('Failed to move to top:', error)
+    }
+  },
+
+  moveToNext: async (queueId: number, currentSongId: number) => {
+    try {
+      await queueApi.moveToNext(queueId, currentSongId)
+      await get().loadQueue()
+    } catch (error) {
+      console.error('Failed to move to next:', error)
     }
   },
 

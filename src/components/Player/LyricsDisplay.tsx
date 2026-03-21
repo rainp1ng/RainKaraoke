@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { FileText } from 'lucide-react'
 import { lyricsApi } from '@/lib/api'
-import type { Song, LyricsLine, LyricsWord } from '@/types'
+import type { Song, LyricsLine } from '@/types'
 
 interface LyricsDisplayProps {
   song: Song | null

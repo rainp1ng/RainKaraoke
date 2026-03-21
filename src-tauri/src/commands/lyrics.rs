@@ -4,13 +4,13 @@ use crate::modules::lyrics_parser::{self, Lyrics, LyricsLine};
 use std::path::PathBuf;
 
 #[tauri::command]
-pub fn get_lyrics(db: State<Database>, song_id: i64) -> Result<Option<Lyrics>, String> {
+pub fn get_lyrics(db: State<Database>, songId: i64) -> Result<Option<Lyrics>, String> {
     let conn = crate::db::get_connection(&db);
 
     // 获取歌词文件路径
     let result = conn.query_row(
         "SELECT lyrics_path, lyrics_format FROM songs WHERE id = ?",
-        [song_id],
+        [songId],
         |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
     );
 

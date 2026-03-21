@@ -94,6 +94,7 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
             file_path TEXT NOT NULL,
             duration INTEGER,
             volume REAL DEFAULT 0.8,
+            midi_message_type TEXT DEFAULT 'NOTE',
             midi_note INTEGER,
             midi_channel INTEGER DEFAULT 0,
             is_one_shot BOOLEAN DEFAULT 1,
@@ -102,7 +103,13 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE INDEX IF NOT EXISTS idx_atmosphere_midi ON atmosphere_sounds(midi_note, midi_channel);
+        CREATE INDEX IF NOT EXISTS idx_atmosphere_midi ON atmosphere_sounds(midi_message_type, midi_note, midi_channel);
+
+        -- 迁移：添加 midi_message_type 列（如果不存在）
+        INSERT OR IGNORE INTO atmosphere_sounds (id, name, file_path, volume, midi_message_type)
+        SELECT 0, 'migration_placeholder', '', 0, 'NOTE' WHERE 0;
+
+        -- 实际迁移在后续版本通过 ALTER TABLE 添加
 
         -- 播放队列表
         CREATE TABLE IF NOT EXISTS play_queue (
@@ -123,11 +130,12 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
             interlude_volume REAL DEFAULT 0.3,
             atmosphere_volume REAL DEFAULT 0.8,
             ducking_enabled BOOLEAN DEFAULT 1,
-            ducking_threshold REAL DEFAULT 0.1,
-            ducking_ratio REAL DEFAULT 0.2,
+            ducking_threshold REAL DEFAULT 0.01,
+            ducking_ratio REAL DEFAULT 0.1,
             ducking_attack_ms INTEGER DEFAULT 100,
             ducking_release_ms INTEGER DEFAULT 300,
             midi_device_id TEXT,
+            midi_device_name TEXT,
             midi_enabled BOOLEAN DEFAULT 1,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -183,6 +191,249 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
         INSERT OR IGNORE INTO effect_chain_config (id) VALUES (1);
         "#,
     )?;
+
+    // 迁移：添加 midi_message_type 列（如果不存在）
+    // 检查列是否存在
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('atmosphere_sounds') WHERE name='midi_message_type'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !column_exists {
+        conn.execute(
+            "ALTER TABLE atmosphere_sounds ADD COLUMN midi_message_type TEXT DEFAULT 'NOTE'",
+            [],
+        )?;
+        println!("[数据库] 已添加 midi_message_type 列");
+    }
+
+    // 迁移：添加 midi_device_name 列（如果不存在）
+    let midi_name_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('audio_config') WHERE name='midi_device_name'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !midi_name_exists {
+        conn.execute(
+            "ALTER TABLE audio_config ADD COLUMN midi_device_name TEXT",
+            [],
+        )?;
+        println!("[数据库] 已添加 midi_device_name 列");
+    }
+
+    // 迁移：添加 effect_chain_config 新字段
+    // vocal_input_device
+    let vocal_input_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_chain_config') WHERE name='vocal_input_device'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !vocal_input_exists {
+        conn.execute(
+            "ALTER TABLE effect_chain_config ADD COLUMN vocal_input_device TEXT",
+            [],
+        )?;
+        println!("[数据库] 已添加 vocal_input_device 列");
+    }
+
+    // instrument_input_device
+    let instrument_input_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_chain_config') WHERE name='instrument_input_device'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !instrument_input_exists {
+        conn.execute(
+            "ALTER TABLE effect_chain_config ADD COLUMN instrument_input_device TEXT",
+            [],
+        )?;
+        println!("[数据库] 已添加 instrument_input_device 列");
+    }
+
+    // vocal_volume
+    let vocal_volume_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_chain_config') WHERE name='vocal_volume'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !vocal_volume_exists {
+        conn.execute(
+            "ALTER TABLE effect_chain_config ADD COLUMN vocal_volume REAL DEFAULT 0.8",
+            [],
+        )?;
+        println!("[数据库] 已添加 vocal_volume 列");
+    }
+
+    // instrument_volume
+    let instrument_volume_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_chain_config') WHERE name='instrument_volume'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !instrument_volume_exists {
+        conn.execute(
+            "ALTER TABLE effect_chain_config ADD COLUMN instrument_volume REAL DEFAULT 0.8",
+            [],
+        )?;
+        println!("[数据库] 已添加 instrument_volume 列");
+    }
+
+    // effect_input
+    let effect_input_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_chain_config') WHERE name='effect_input'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !effect_input_exists {
+        conn.execute(
+            "ALTER TABLE effect_chain_config ADD COLUMN effect_input TEXT DEFAULT 'vocal'",
+            [],
+        )?;
+        println!("[数据库] 已添加 effect_input 列");
+    }
+
+    // recording_path
+    let recording_path_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_chain_config') WHERE name='recording_path'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !recording_path_exists {
+        conn.execute(
+            "ALTER TABLE effect_chain_config ADD COLUMN recording_path TEXT",
+            [],
+        )?;
+        println!("[数据库] 已添加 recording_path 列");
+    }
+
+    // 迁移：为 effect_slots 添加 MIDI 控制字段
+    let midi_note_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_slots') WHERE name='midi_note'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !midi_note_exists {
+        conn.execute(
+            "ALTER TABLE effect_slots ADD COLUMN midi_note INTEGER",
+            [],
+        )?;
+        println!("[数据库] 已添加 effect_slots.midi_note 列");
+    }
+
+    let midi_channel_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_slots') WHERE name='midi_channel'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !midi_channel_exists {
+        conn.execute(
+            "ALTER TABLE effect_slots ADD COLUMN midi_channel INTEGER DEFAULT 0",
+            [],
+        )?;
+        println!("[数据库] 已添加 effect_slots.midi_channel 列");
+    }
+
+    // 迁移：为 audio_config 添加 ducking_recovery_delay 字段
+    let ducking_recovery_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('audio_config') WHERE name='ducking_recovery_delay'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !ducking_recovery_exists {
+        conn.execute(
+            "ALTER TABLE audio_config ADD COLUMN ducking_recovery_delay INTEGER DEFAULT 8",
+            [],
+        )?;
+        println!("[数据库] 已添加 audio_config.ducking_recovery_delay 列");
+    }
+
+    // 迁移：为 effect_chain_config 添加通道配置字段
+    let vocal_channel_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_chain_config') WHERE name='vocal_input_channel'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !vocal_channel_exists {
+        conn.execute(
+            "ALTER TABLE effect_chain_config ADD COLUMN vocal_input_channel INTEGER DEFAULT 0",
+            [],
+        )?;
+        println!("[数据库] 已添加 effect_chain_config.vocal_input_channel 列");
+    }
+
+    let instrument_channel_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('effect_chain_config') WHERE name='instrument_input_channel'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !instrument_channel_exists {
+        conn.execute(
+            "ALTER TABLE effect_chain_config ADD COLUMN instrument_input_channel INTEGER DEFAULT 1",
+            [],
+        )?;
+        println!("[数据库] 已添加 effect_chain_config.instrument_input_channel 列");
+    }
+
+    // 迁移：更新 ducking 默认值（如果当前值是旧的默认值）
+    // 检查是否需要更新 ducking 默认值
+    let need_update_ducking: bool = conn
+        .query_row(
+            "SELECT ducking_threshold >= 0.05 OR ducking_ratio > 0.5 OR ducking_recovery_delay = 8 FROM audio_config WHERE id = 1",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .unwrap_or(1) == 1;
+
+    if need_update_ducking {
+        conn.execute(
+            "UPDATE audio_config SET \
+             ducking_threshold = CASE WHEN ducking_threshold >= 0.05 THEN 0.01 ELSE ducking_threshold END, \
+             ducking_ratio = CASE WHEN ducking_ratio > 0.5 THEN 0.1 ELSE ducking_ratio END, \
+             ducking_recovery_delay = CASE WHEN ducking_recovery_delay = 8 THEN 3 ELSE ducking_recovery_delay END \
+             WHERE id = 1",
+            [],
+        )?;
+        println!("[数据库] 已更新 ducking 默认值: threshold=0.01, ratio=0.1, recovery_delay=3");
+    }
 
     Ok(())
 }

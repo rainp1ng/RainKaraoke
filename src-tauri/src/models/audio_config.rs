@@ -16,6 +16,7 @@ pub struct AudioConfig {
     pub ducking_ratio: f32,
     pub ducking_attack_ms: i32,
     pub ducking_release_ms: i32,
+    pub ducking_recovery_delay: i32, // 恢复延迟（秒，1-9）
 
     pub midi_device_id: Option<String>,
     pub midi_enabled: bool,
@@ -35,6 +36,7 @@ pub struct UpdateAudioConfig {
     pub ducking_ratio: Option<f32>,
     pub ducking_attack_ms: Option<i32>,
     pub ducking_release_ms: Option<i32>,
+    pub ducking_recovery_delay: Option<i32>,
     pub midi_device_id: Option<String>,
     pub midi_enabled: Option<bool>,
 }

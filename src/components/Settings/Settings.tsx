@@ -63,9 +63,12 @@ function Settings() {
   }
 
   const handleSaveConfig = async (key: string, value: any) => {
+    console.log(`[Settings] Saving config: ${key} = ${value}`)
     try {
-      await audioApi.saveAudioConfig({ [key]: value })
+      const result = await audioApi.saveAudioConfig({ [key]: value })
+      console.log(`[Settings] Save result:`, result)
     } catch (err) {
+      console.error(`[Settings] Save failed:`, err)
       setError(`保存配置失败: ${err}`)
     }
   }
@@ -168,6 +171,41 @@ function Settings() {
           </div>
         </section>
 
+        {/* 气氛组设置 */}
+        <section className="bg-dark-800 rounded-lg p-4">
+          <h2 className="text-lg font-semibold mb-4">气氛组设置</h2>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">气氛组输出设备</label>
+              <select
+                className="w-full bg-dark-700 rounded px-3 py-2 text-sm"
+                value={audioConfig?.atmosphereOutputDevice || ''}
+                onChange={(e) => handleSaveConfig('atmosphereOutputDevice', e.target.value)}
+              >
+                <option value="">使用默认设备</option>
+                {outputDevices.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">气氛组音量: {Math.round((audioConfig?.atmosphereVolume || 0.8) * 100)}%</label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={audioConfig?.atmosphereVolume || 0.8}
+                onChange={(e) => setAudioConfig({ ...audioConfig, atmosphereVolume: parseFloat(e.target.value) })}
+                onMouseUp={(e) => handleSaveConfig('atmosphereVolume', parseFloat((e.target as HTMLInputElement).value))}
+                className="w-full"
+              />
+            </div>
+          </div>
+        </section>
+
         {/* Ducking 设置 */}
         <section className="bg-dark-800 rounded-lg p-4">
           <h2 className="text-lg font-semibold mb-4">过场音乐 Ducking</h2>
@@ -190,13 +228,13 @@ function Settings() {
             </div>
 
             <div>
-              <label className="block text-sm text-dark-300 mb-1">触发阈值: {Math.round((audioConfig?.duckingThreshold || 0.1) * 100)}%</label>
+              <label className="block text-sm text-dark-300 mb-1">触发阈值: {Math.round((audioConfig?.duckingThreshold || 0.01) * 100)}%</label>
               <input
                 type="range"
                 min="0"
                 max="0.5"
                 step="0.01"
-                value={audioConfig?.duckingThreshold || 0.1}
+                value={audioConfig?.duckingThreshold || 0.01}
                 onChange={(e) => setAudioConfig({ ...audioConfig, duckingThreshold: parseFloat(e.target.value) })}
                 onMouseUp={(e) => handleSaveConfig('duckingThreshold', parseFloat((e.target as HTMLInputElement).value))}
                 className="w-full"
@@ -204,17 +242,32 @@ function Settings() {
             </div>
 
             <div>
-              <label className="block text-sm text-dark-300 mb-1">降低比例: {Math.round((audioConfig?.duckingRatio || 0.2) * 100)}%</label>
+              <label className="block text-sm text-dark-300 mb-1">降低比例: {Math.round((audioConfig?.duckingRatio || 0.1) * 100)}%</label>
               <input
                 type="range"
                 min="0"
-                max="0.5"
+                max="0.9"
                 step="0.01"
-                value={audioConfig?.duckingRatio || 0.2}
+                value={audioConfig?.duckingRatio || 0.1}
                 onChange={(e) => setAudioConfig({ ...audioConfig, duckingRatio: parseFloat(e.target.value) })}
                 onMouseUp={(e) => handleSaveConfig('duckingRatio', parseFloat((e.target as HTMLInputElement).value))}
                 className="w-full"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">恢复延迟: {audioConfig?.duckingRecoveryDelay || 3} 秒</label>
+              <input
+                type="range"
+                min="1"
+                max="9"
+                step="1"
+                value={audioConfig?.duckingRecoveryDelay || 3}
+                onChange={(e) => setAudioConfig({ ...audioConfig, duckingRecoveryDelay: parseInt(e.target.value) })}
+                onMouseUp={(e) => handleSaveConfig('duckingRecoveryDelay', parseInt((e.target as HTMLInputElement).value))}
+                className="w-full"
+              />
+              <p className="text-xs text-dark-500 mt-1">人声停止后多久恢复过场音乐音量</p>
             </div>
           </div>
         </section>

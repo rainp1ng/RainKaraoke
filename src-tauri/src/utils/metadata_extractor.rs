@@ -1,8 +1,9 @@
 use std::path::Path;
-use std::time::Duration;
 use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::config::WriteOptions;
 use lofty::probe::Probe;
 use lofty::tag::Accessor;
+use lofty::tag::Tag;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -155,6 +156,142 @@ pub fn detect_lyrics_format(file_path: &Path) -> Option<String> {
         "txt" => Some("txt".to_string()),
         _ => None,
     }
+}
+
+/// 写入元数据到音频文件
+/// 支持的格式：MP3, FLAC, M4A, MP4, WAV, OGG 等
+pub fn write_metadata(file_path: &Path, metadata: &SongMetadata) -> Result<(), String> {
+    use lofty::file::FileType;
+    use lofty::tag::TagType;
+
+    let extension = file_path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    // 视频文件不支持写入元数据
+    if crate::utils::file_scanner::VIDEO_EXTENSIONS.contains(&extension.as_str()) {
+        return Err("视频文件不支持修改元数据".to_string());
+    }
+
+    // 检查是否是支持的音频格式
+    if !crate::utils::file_scanner::AUDIO_EXTENSIONS.contains(&extension.as_str()) {
+        return Err("不支持的文件格式".to_string());
+    }
+
+    println!("[Metadata] Attempting to write metadata to: {:?}", file_path);
+
+    // 使用 catch_unwind 来捕获可能的 panic
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // 打开文件并读取
+        let probe = match Probe::open(file_path) {
+            Ok(p) => p,
+            Err(e) => {
+                println!("[Metadata] Error opening file: {}", e);
+                return Err(format!("无法打开文件: {}", e));
+            }
+        };
+
+        let mut tagged_file = match probe.read() {
+            Ok(f) => f,
+            Err(e) => {
+                println!("[Metadata] Error reading file: {}", e);
+                return Err(format!("无法读取文件: {}", e));
+            }
+        };
+
+        // 获取或创建标签
+        let has_existing_tag = tagged_file.primary_tag().is_some();
+        println!("[Metadata] Has existing tag: {}", has_existing_tag);
+
+        if !has_existing_tag {
+            // 如果文件没有标签，需要创建一个新标签
+            println!("[Metadata] No existing tag, trying to create new tag");
+
+            // 根据文件类型确定合适的标签类型
+            let file_type = tagged_file.file_type();
+            let tag_type = match file_type {
+                FileType::Mpeg => TagType::Id3v2,
+                FileType::Flac => TagType::VorbisComments,
+                FileType::Mp4 => TagType::Mp4Ilst,
+                FileType::Ape => TagType::Ape,
+                FileType::Opus => TagType::VorbisComments,
+                FileType::Speex => TagType::VorbisComments,
+                FileType::Vorbis => TagType::VorbisComments,
+                FileType::Wav => TagType::RiffInfo,
+                FileType::Aiff => TagType::AiffText,
+                _ => {
+                    println!("[Metadata] Unsupported file type: {:?}", file_type);
+                    let tag_type = tagged_file.primary_tag_type();
+                    println!("[Metadata] Using primary_tag_type: {:?}", tag_type);
+                    tag_type
+                }
+            };
+
+            println!("[Metadata] Creating tag of type: {:?}", tag_type);
+            tagged_file.insert_tag(Tag::new(tag_type));
+        }
+
+        // 获取标签引用
+        let tag = match tagged_file.primary_tag_mut() {
+            Some(t) => t,
+            None => {
+                println!("[Metadata] Failed to get primary tag");
+                return Err("无法获取或创建标签".to_string());
+            }
+        };
+
+        // 写入元数据
+        if let Some(ref title) = metadata.title {
+            tag.set_title(title.clone());
+            println!("[Metadata] Set title: {}", title);
+        }
+        if let Some(ref artist) = metadata.artist {
+            tag.set_artist(artist.clone());
+            println!("[Metadata] Set artist: {}", artist);
+        }
+        if let Some(ref album) = metadata.album {
+            tag.set_album(album.clone());
+            println!("[Metadata] Set album: {}", album);
+        }
+        if let Some(ref genre) = metadata.genre {
+            tag.set_genre(genre.clone());
+        }
+        if let Some(year) = metadata.year {
+            tag.set_year(year);
+        }
+
+        // 保存到文件
+        println!("[Metadata] Saving to file...");
+        match tagged_file.save_to_path(file_path, WriteOptions::default()) {
+            Ok(_) => {
+                println!("[Metadata] Successfully saved metadata");
+                Ok(())
+            }
+            Err(e) => {
+                println!("[Metadata] Error saving file: {}", e);
+                Err(format!("保存文件失败: {}", e))
+            }
+        }
+    }));
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(panic_info) => {
+            println!("[Metadata] Panic occurred: {:?}", panic_info);
+            Err("处理文件时发生内部错误".to_string())
+        }
+    }
+}
+
+/// 检查文件是否支持写入元数据
+pub fn can_write_metadata(file_path: &Path) -> bool {
+    let extension = file_path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    // 音频文件支持写入，视频文件不支持
+    crate::utils::file_scanner::AUDIO_EXTENSIONS.contains(&extension.as_str())
 }
 
 #[cfg(test)]

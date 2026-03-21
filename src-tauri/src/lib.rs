@@ -19,6 +19,9 @@ pub fn run() {
             // 初始化模块
             modules::init(&app_handle)?;
 
+            // 初始化全局音频状态
+            app.manage(commands::effect::AppAudioState::new());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -36,6 +39,9 @@ pub fn run() {
             commands::library::get_artists,
             commands::library::get_genres,
             commands::library::get_languages,
+            commands::library::import_vocal,
+            commands::library::import_lyrics,
+            commands::library::update_song_metadata,
 
             // 播放控制命令
             commands::playback::play_song,
@@ -46,6 +52,7 @@ pub fn run() {
             commands::playback::toggle_vocal,
             commands::playback::set_pitch,
             commands::playback::set_speed,
+            commands::playback::set_volume,
             commands::playback::get_playback_state,
             commands::playback::update_playback_time,
 
@@ -54,6 +61,8 @@ pub fn run() {
             commands::queue::add_to_queue,
             commands::queue::remove_from_queue,
             commands::queue::move_queue_item,
+            commands::queue::move_to_top,
+            commands::queue::move_to_next,
             commands::queue::clear_queue,
             commands::queue::play_next,
 
@@ -63,6 +72,10 @@ pub fn run() {
             commands::interlude::delete_interlude_track,
             commands::interlude::set_interlude_volume,
             commands::interlude::get_interlude_state,
+            commands::interlude::play_interlude,
+            commands::interlude::pause_interlude,
+            commands::interlude::resume_interlude,
+            commands::interlude::stop_interlude,
 
             // 气氛组命令
             commands::atmosphere::get_atmosphere_sounds,
@@ -71,12 +84,15 @@ pub fn run() {
             commands::atmosphere::delete_atmosphere_sound,
             commands::atmosphere::play_atmosphere_sound,
             commands::atmosphere::stop_atmosphere_sound,
+            commands::atmosphere::set_atmosphere_volume,
 
             // MIDI命令
             commands::midi::get_midi_devices,
             commands::midi::connect_midi_device,
             commands::midi::disconnect_midi_device,
             commands::midi::get_midi_status,
+            commands::midi::get_saved_midi_device,
+            commands::midi::auto_connect_midi,
 
             // 音频设置命令
             commands::audio::get_audio_devices,
@@ -96,9 +112,33 @@ pub fn run() {
             commands::effect::clear_effect_slot,
             commands::effect::get_effect_presets,
             commands::effect::save_effect_preset,
-            commands::effect::load_effect_preset,
             commands::effect::delete_effect_preset,
             commands::effect::bypass_all_effects,
+            commands::effect::set_effect_midi,
+            commands::effect::clear_effect_midi,
+
+            // 音频设备和实时音频路由命令
+            commands::effect::list_audio_input_devices,
+            commands::effect::list_audio_output_devices,
+            commands::effect::start_live_audio,
+            commands::effect::stop_live_audio,
+            commands::effect::set_effect_bypass,
+            commands::effect::get_output_level,
+            commands::effect::get_level_meter_value,
+            commands::effect::move_effect_up,
+            commands::effect::move_effect_down,
+            commands::effect::get_live_audio_state,
+            commands::effect::set_vocal_volume,
+            commands::effect::set_instrument_volume,
+            commands::effect::set_effect_input,
+            commands::effect::set_vocal_channel,
+            commands::effect::set_instrument_channel,
+            commands::effect::get_ducking_debug_state,
+
+            // 录音命令
+            commands::effect::start_recording,
+            commands::effect::stop_recording,
+            commands::effect::get_recording_state,
 
             // 歌词命令
             commands::lyrics::get_lyrics,

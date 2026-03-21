@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Song, Tag } from '@/types'
+import type { Song } from '@/types'
 import { libraryApi } from '@/lib/api'
 
 interface LibraryState {
