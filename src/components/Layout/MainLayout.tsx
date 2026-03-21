@@ -16,8 +16,8 @@ import { OutputLevelMeter, ChainLevelMeter } from '../EffectChain/LevelMeter'
 function Resizer({
   onResize,
   direction = 'vertical',
-  minSize = 200,
-  maxSize = 800,
+  minSize: _minSize = 200,
+  maxSize: _maxSize = 800,
 }: {
   onResize: (delta: number) => void
   direction?: 'vertical' | 'horizontal'
@@ -121,7 +121,7 @@ function MainLayout() {
 
   // 调整左侧面板宽度
   const handleLeftPanelResize = useCallback((delta: number) => {
-    setLayoutConfig(prev => {
+    setLayoutConfig((prev: { leftPanelWidth: number; rightPanelWidth: number; bottomPanelHeight: number }) => {
       const newWidth = Math.max(300, Math.min(800, prev.leftPanelWidth - delta))
       const newConfig = { ...prev, leftPanelWidth: newWidth }
       saveLayoutConfig(newConfig)
@@ -131,7 +131,7 @@ function MainLayout() {
 
   // 调整右侧面板宽度
   const handleRightPanelResize = useCallback((delta: number) => {
-    setLayoutConfig(prev => {
+    setLayoutConfig((prev: { leftPanelWidth: number; rightPanelWidth: number; bottomPanelHeight: number }) => {
       const newWidth = Math.max(250, Math.min(600, prev.rightPanelWidth + delta))
       const newConfig = { ...prev, rightPanelWidth: newWidth }
       saveLayoutConfig(newConfig)
@@ -141,7 +141,7 @@ function MainLayout() {
 
   // 调整底部面板高度
   const handleBottomPanelResize = useCallback((delta: number) => {
-    setLayoutConfig(prev => {
+    setLayoutConfig((prev: { leftPanelWidth: number; rightPanelWidth: number; bottomPanelHeight: number }) => {
       const newHeight = Math.max(120, Math.min(400, prev.bottomPanelHeight + delta))
       const newConfig = { ...prev, bottomPanelHeight: newHeight }
       saveLayoutConfig(newConfig)

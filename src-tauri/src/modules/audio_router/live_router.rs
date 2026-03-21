@@ -259,8 +259,6 @@ pub struct GlobalAudioState {
     pub output_level_meter: Mutex<crate::modules::effects::LevelMeterProcessor>,
     /// 采样率
     pub sample_rate: std::sync::atomic::AtomicU32,
-    /// 帧计数器（用于调试日志）
-    frame_counter: AtomicU64,
     /// Ducking 状态
     pub ducking_enabled: AtomicBool,
     pub ducking_threshold: std::sync::atomic::AtomicU32,
@@ -296,7 +294,6 @@ impl GlobalAudioState {
             effect_chain: Mutex::new(EffectChain::new()),
             output_level_meter: Mutex::new(crate::modules::effects::LevelMeterProcessor::new(44100.0)),
             sample_rate: std::sync::atomic::AtomicU32::new(44100),
-            frame_counter: AtomicU64::new(0),
             ducking_enabled: AtomicBool::new(true),
             ducking_threshold: std::sync::atomic::AtomicU32::new(float_to_u32(0.01)),
             ducking_ratio: std::sync::atomic::AtomicU32::new(float_to_u32(0.1)),
@@ -1104,7 +1101,7 @@ fn process_input_f32(data: &[f32], input_channels: u16, state: &GlobalAudioState
         }
 
         // 更新输入电平（用于 ducking 检测，无锁）
-        if mono_samples.len() > 0 {
+        if !mono_samples.is_empty() {
             let max_level = mono_samples.iter().map(|s| s.abs()).fold(0.0f32, |a, b| a.max(b));
             state.update_input_level(max_level);
         }
