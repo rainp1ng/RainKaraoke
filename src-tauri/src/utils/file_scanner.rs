@@ -186,7 +186,9 @@ pub fn extract_base_name(file_name: &str) -> String {
         }
     }
 
-    cleaned.trim().to_string()
+    let result = cleaned.trim().to_string();
+    println!("[Scanner] extract_base_name: '{}' -> '{}'", file_name, result);
+    result
 }
 
 /// 将扫描的文件分组为歌曲
@@ -230,6 +232,7 @@ pub fn group_files_into_songs(files: Vec<ScannedFile>) -> Vec<SongGroup> {
             FileType::Lyrics => {
                 // 优先使用 LRC 格式
                 if group.lyrics.is_none() || file.extension == "lrc" {
+                    println!("[Scanner] Adding lyrics '{}' to group '{}'", file.file_name, group.base_name);
                     group.lyrics = Some(file);
                 }
             }

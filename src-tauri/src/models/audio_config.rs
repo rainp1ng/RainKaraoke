@@ -20,6 +20,11 @@ pub struct AudioConfig {
 
     pub midi_device_id: Option<String>,
     pub midi_enabled: bool,
+
+    // 气氛组停止按钮 MIDI 配置
+    pub atmosphere_stop_midi_message_type: Option<String>,
+    pub atmosphere_stop_midi_note: Option<i32>,
+    pub atmosphere_stop_midi_channel: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -39,4 +44,7 @@ pub struct UpdateAudioConfig {
     pub ducking_recovery_delay: Option<i32>,
     pub midi_device_id: Option<String>,
     pub midi_enabled: Option<bool>,
+    pub atmosphere_stop_midi_message_type: Option<String>,
+    pub atmosphere_stop_midi_note: Option<i32>,
+    pub atmosphere_stop_midi_channel: Option<i32>,
 }

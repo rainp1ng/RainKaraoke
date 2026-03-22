@@ -84,6 +84,11 @@ export interface AudioConfig {
 
   midiDeviceId: string | null
   midiEnabled: boolean
+
+  // 气氛组停止按钮 MIDI 配置
+  atmosphereStopMidiMessageType: string | null
+  atmosphereStopMidiNote: number | null
+  atmosphereStopMidiChannel: number | null
 }
 
 export interface PlaybackState {

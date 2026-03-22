@@ -108,6 +108,27 @@ function Library() {
     }
   }
 
+  // 批量删除选中的歌曲
+  const handleDeleteSelected = async () => {
+    if (selectedSongs.size === 0) return
+
+    const confirmed = await confirm(
+      `确定要删除选中的 ${selectedSongs.size} 首歌曲吗？\n此操作不可撤销。`,
+      {
+        title: '确认批量删除',
+        kind: 'warning',
+      }
+    )
+
+    if (confirmed) {
+      // 逐个删除
+      for (const songId of selectedSongs) {
+        await deleteSong(songId)
+      }
+      setSelectedSongs(new Set())
+    }
+  }
+
   // 切换选择
   const toggleSelect = (songId: number) => {
     const newSelected = new Set(selectedSongs)
@@ -434,12 +455,27 @@ function Library() {
               共 {totalCount} 首歌曲
             </span>
             {selectedSongs.size > 0 && (
-              <button
-                onClick={handleAddSelectedToQueue}
-                className="px-3 py-1 bg-primary-600 hover:bg-primary-700 rounded text-sm transition-colors"
-              >
-                添加 {selectedSongs.size} 首到队列
-              </button>
+              <>
+                <button
+                  onClick={handleDeleteSelected}
+                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors flex items-center gap-1"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  删除 ({selectedSongs.size})
+                </button>
+                <button
+                  onClick={handleAddSelectedToQueue}
+                  className="px-3 py-1 bg-primary-600 hover:bg-primary-700 rounded text-sm transition-colors"
+                >
+                  添加 {selectedSongs.size} 首到队列
+                </button>
+                <button
+                  onClick={() => setSelectedSongs(new Set())}
+                  className="px-3 py-1 bg-dark-700 hover:bg-dark-600 rounded text-sm transition-colors text-dark-400"
+                >
+                  取消选择
+                </button>
+              </>
             )}
           </div>
 

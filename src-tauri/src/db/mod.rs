@@ -435,6 +435,55 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
         println!("[数据库] 已更新 ducking 默认值: threshold=0.01, ratio=0.1, recovery_delay=3");
     }
 
+    // 迁移：为 audio_config 添加气氛组停止按钮 MIDI 配置字段
+    let atm_stop_msg_type_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('audio_config') WHERE name='atmosphere_stop_midi_message_type'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !atm_stop_msg_type_exists {
+        conn.execute(
+            "ALTER TABLE audio_config ADD COLUMN atmosphere_stop_midi_message_type TEXT DEFAULT 'NOTE'",
+            [],
+        )?;
+        println!("[数据库] 已添加 audio_config.atmosphere_stop_midi_message_type 列");
+    }
+
+    let atm_stop_note_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('audio_config') WHERE name='atmosphere_stop_midi_note'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !atm_stop_note_exists {
+        conn.execute(
+            "ALTER TABLE audio_config ADD COLUMN atmosphere_stop_midi_note INTEGER",
+            [],
+        )?;
+        println!("[数据库] 已添加 audio_config.atmosphere_stop_midi_note 列");
+    }
+
+    let atm_stop_channel_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('audio_config') WHERE name='atmosphere_stop_midi_channel'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !atm_stop_channel_exists {
+        conn.execute(
+            "ALTER TABLE audio_config ADD COLUMN atmosphere_stop_midi_channel INTEGER DEFAULT 0",
+            [],
+        )?;
+        println!("[数据库] 已添加 audio_config.atmosphere_stop_midi_channel 列");
+    }
+
     Ok(())
 }
 

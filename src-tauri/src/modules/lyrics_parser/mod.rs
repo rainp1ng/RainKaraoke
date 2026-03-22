@@ -42,19 +42,44 @@ pub struct Lyrics {
     pub lines: Vec<LyricsLine>,
 }
 
+/// 读取文件内容，自动检测编码（支持 UTF-8 和 GBK）
+fn read_file_with_encoding(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+
+    // 首先尝试 UTF-8
+    if let Ok(content) = String::from_utf8(bytes.clone()) {
+        return Some(content);
+    }
+
+    // 尝试 GBK 编码
+    let (content, _encoding_used, _had_errors) = encoding_rs::GBK.decode(&bytes);
+    if _had_errors {
+        return None;
+    }
+
+    Some(content.into_owned())
+}
+
 /// 从文件解析歌词
 pub fn parse_lyrics_file(path: &Path) -> Option<Lyrics> {
-    let content = fs::read_to_string(path).ok()?;
+    let content = read_file_with_encoding(path)?;
     let extension = path.extension()?.to_string_lossy().to_lowercase();
 
     let format = match extension.as_str() {
         "lrc" => LyricsFormat::Lrc,
         "ksc" => LyricsFormat::Ksc,
         "txt" => LyricsFormat::Txt,
-        _ => return None,
+        _ => {
+            println!("[LyricsParser] Unknown extension: {}", extension);
+            return None;
+        }
     };
 
-    Some(parse_lyrics(&content, format))
+    println!("[LyricsParser] Parsing file: {:?} (format: {:?}, content length: {} bytes)", path, format, content.len());
+    let result = parse_lyrics(&content, format);
+    println!("[LyricsParser] Parsed {} lines", result.lines.len());
+
+    Some(result)
 }
 
 /// 解析歌词内容
@@ -71,7 +96,14 @@ pub fn parse_lyrics(content: &str, format: LyricsFormat) -> Lyrics {
 /// 解析 LRC 格式
 pub fn parse_lrc(content: &str) -> Vec<LyricsLine> {
     let mut lines = Vec::new();
-    let time_regex = Regex::new(r"\[(\d{2}):(\d{2})\.(\d{2,3})\]").unwrap();
+
+    // 支持多种时间格式：
+    // [MM:SS.xx] 或 [MM:SS.xxx] - 标准格式（分:秒.毫秒）
+    // [MM:SS:XX] - 扩展格式（分:秒:厘秒/帧），如 [00:24:00] = 24秒
+    // [MM:SS] - 简化格式（分:秒）
+    let time_regex_standard = Regex::new(r"\[(\d{2}):(\d{2})\.(\d{2,3})\]").unwrap();
+    let time_regex_colon = Regex::new(r"\[(\d{1,2}):(\d{2}):(\d{2})\]").unwrap();  // [MM:SS:XX]
+    let time_regex_simple = Regex::new(r"\[(\d{2}):(\d{2})\]").unwrap();
 
     for line in content.lines() {
         let line = line.trim();
@@ -83,8 +115,11 @@ pub fn parse_lrc(content: &str) -> Vec<LyricsLine> {
             continue;
         }
 
-        // 解析时间标签
-        if let Some(caps) = time_regex.captures(line) {
+        // 收集该行的所有时间戳
+        let mut timestamps: Vec<u64> = Vec::new();
+
+        // 查找所有标准格式 [MM:SS.xx]
+        for caps in time_regex_standard.captures_iter(line) {
             let minutes: u64 = caps[1].parse().unwrap_or(0);
             let seconds: u64 = caps[2].parse().unwrap_or(0);
             let ms_str = &caps[3];
@@ -93,18 +128,40 @@ pub fn parse_lrc(content: &str) -> Vec<LyricsLine> {
             } else {
                 ms_str.parse().unwrap_or(0)
             };
+            timestamps.push(minutes * 60 * 1000 + seconds * 1000 + milliseconds);
+        }
 
-            let time = minutes * 60 * 1000 + seconds * 1000 + milliseconds;
+        // 查找所有冒号格式 [MM:SS:XX] - 作为 分:秒:厘秒 解析
+        // 例如 [00:24:00] = 0分24秒0厘秒 = 24000毫秒
+        for caps in time_regex_colon.captures_iter(line) {
+            let minutes: u64 = caps[1].parse().unwrap_or(0);
+            let seconds: u64 = caps[2].parse().unwrap_or(0);
+            let centiseconds: u64 = caps[3].parse().unwrap_or(0);
+            // 第三部分作为厘秒（百分之一秒），乘以10得到毫秒
+            let milliseconds = centiseconds * 10;
+            timestamps.push(minutes * 60 * 1000 + seconds * 1000 + milliseconds);
+        }
 
-            // 获取歌词文本（移除时间标签）
-            let text = time_regex.replace_all(line, "").to_string();
-            let text = text.trim().to_string();
+        // 如果没有找到以上格式，尝试简化格式 [MM:SS]
+        if timestamps.is_empty() {
+            for caps in time_regex_simple.captures_iter(line) {
+                let minutes: u64 = caps[1].parse().unwrap_or(0);
+                let seconds: u64 = caps[2].parse().unwrap_or(0);
+                timestamps.push(minutes * 60 * 1000 + seconds * 1000);
+            }
+        }
 
-            if !text.is_empty() {
+        // 获取歌词文本（移除所有时间标签）
+        let text = remove_all_time_tags(line, &time_regex_standard, &time_regex_colon, &time_regex_simple);
+        let text = text.trim().to_string();
+
+        // 为每个时间戳创建一行
+        if !text.is_empty() {
+            for time in timestamps {
                 lines.push(LyricsLine {
                     time,
                     duration: None,
-                    text,
+                    text: text.clone(),
                     words: None,
                 });
             }
@@ -114,12 +171,23 @@ pub fn parse_lrc(content: &str) -> Vec<LyricsLine> {
     // 按时间排序
     lines.sort_by_key(|l| l.time);
 
+    // 去重（相同时间的行只保留一个）
+    lines.dedup_by_key(|l| l.time);
+
     // 计算每行的持续时间
     for i in 0..lines.len().saturating_sub(1) {
         lines[i].duration = Some(lines[i + 1].time - lines[i].time);
     }
 
     lines
+}
+
+/// 移除所有时间标签
+fn remove_all_time_tags(line: &str, re1: &Regex, re2: &Regex, re3: &Regex) -> String {
+    let text = re1.replace_all(line, "").to_string();
+    let text = re2.replace_all(&text, "").to_string();
+    let text = re3.replace_all(&text, "").to_string();
+    text
 }
 
 /// 解析 KSC 格式（逐字歌词）

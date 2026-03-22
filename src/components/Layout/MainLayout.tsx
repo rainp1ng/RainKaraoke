@@ -9,8 +9,9 @@ import InterludePanel from '../Interlude/InterludePanel'
 import AtmospherePanel from '../Atmosphere/AtmospherePanel'
 import Queue from '../Queue/Queue'
 import { libraryApi, midiApi, effectApi } from '@/lib/api'
-import { useLibraryStore, usePlaybackStore } from '@/stores'
+import { useLibraryStore, usePlaybackStore, useShortcutStore } from '@/stores'
 import { OutputLevelMeter, ChainLevelMeter } from '../EffectChain/LevelMeter'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 
 // 可拖拽分隔条组件
 function Resizer({
@@ -104,6 +105,10 @@ function MainLayout() {
   const [midiDeviceName, setMidiDeviceName] = useState<string | null>(null)
   const { loadSongs, loadArtists, loadGenres } = useLibraryStore()
   const { currentSong, currentTime } = usePlaybackStore()
+  const { loadConfig } = useShortcutStore()
+
+  // 初始化键盘快捷键
+  useKeyboardShortcuts()
 
   // 可调节的布局尺寸
   const [layoutConfig, setLayoutConfig] = useState(loadLayoutConfig)
@@ -168,6 +173,11 @@ function MainLayout() {
     const interval = setInterval(loadLevelMeters, 2000)
     return () => clearInterval(interval)
   }, [])
+
+  // 加载快捷键配置
+  useEffect(() => {
+    loadConfig()
+  }, [loadConfig])
 
   useEffect(() => {
     // 尝试自动连接 MIDI 设备
@@ -316,10 +326,12 @@ function MainLayout() {
             style={{ width: layoutConfig.leftPanelWidth }}
           >
             {/* 播放器 - 处理视频和音频 */}
-            <VideoPlayer />
+            <div className="flex-shrink-0">
+              <VideoPlayer />
+            </div>
 
             {/* 歌词显示 */}
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 min-h-0 relative">
               <LyricsDisplay song={currentSong} currentTime={currentTime} />
             </div>
           </div>

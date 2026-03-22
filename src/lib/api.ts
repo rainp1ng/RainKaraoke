@@ -444,6 +444,9 @@ export const audioApi = {
         duckingRecoveryDelay: config.duckingRecoveryDelay,
         midiDeviceId: config.midiDeviceId,
         midiEnabled: config.midiEnabled,
+        atmosphereStopMidiMessageType: config.atmosphereStopMidiMessageType,
+        atmosphereStopMidiNote: config.atmosphereStopMidiNote,
+        atmosphereStopMidiChannel: config.atmosphereStopMidiChannel,
       }
     })
   },

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Plus, Trash2, Settings, Piano, Volume2 } from 'lucide-react'
+import { Plus, Trash2, Settings, Piano, Volume2, Square } from 'lucide-react'
 import { useAtmosphereStore } from '@/stores'
 import { open } from '@tauri-apps/plugin-dialog'
 import { listen } from '@tauri-apps/api/event'
@@ -43,6 +43,7 @@ function AtmospherePanel() {
     updateSound,
     deleteSound,
     playSound,
+    stopSound,
     loadMidiDevices,
     connectMidi,
     disconnectMidi,
@@ -54,29 +55,56 @@ function AtmospherePanel() {
   const [midiLearnMode, setMidiLearnMode] = useState<number | null>(null)
   const [masterVolume, setMasterVolume] = useState(0.8)
 
+  // 停止按钮 MIDI 配置
+  const [stopMidiConfig, setStopMidiConfig] = useState<{
+    messageType: MidiMessageType
+    note: number | null
+    channel: number
+  }>({
+    messageType: 'NOTE',
+    note: null,
+    channel: 0,
+  })
+  const [stopMidiLearnMode, setStopMidiLearnMode] = useState(false)
+
   // 使用 ref 存储最新状态，避免 useEffect 依赖变化
   const soundsRef = useRef(sounds)
   const playSoundRef = useRef(playSound)
+  const stopSoundRef = useRef(stopSound)
   const midiLearnModeRef = useRef(midiLearnMode)
   const editingSoundRef = useRef(editingSound)
+  const stopMidiLearnModeRef = useRef(stopMidiLearnMode)
+  const stopMidiConfigRef = useRef(stopMidiConfig)
 
   useEffect(() => {
     soundsRef.current = sounds
     playSoundRef.current = playSound
+    stopSoundRef.current = stopSound
     midiLearnModeRef.current = midiLearnMode
     editingSoundRef.current = editingSound
-  }, [sounds, playSound, midiLearnMode, editingSound])
+    stopMidiLearnModeRef.current = stopMidiLearnMode
+    stopMidiConfigRef.current = stopMidiConfig
+  }, [sounds, playSound, stopSound, midiLearnMode, editingSound, stopMidiLearnMode, stopMidiConfig])
 
   useEffect(() => {
     loadSounds()
     loadMidiDevices()
     loadMidiStatus()
 
-    // 加载气氛组音量
+    // 加载气氛组音量和停止按钮 MIDI 配置
     const loadVolume = async () => {
       try {
         const config = await audioApi.getAudioConfig()
         setMasterVolume(config.atmosphereVolume ?? 0.8)
+
+        // 加载停止按钮 MIDI 配置
+        if (config.atmosphereStopMidiNote !== null) {
+          setStopMidiConfig({
+            messageType: (config.atmosphereStopMidiMessageType as MidiMessageType) || 'NOTE',
+            note: config.atmosphereStopMidiNote,
+            channel: config.atmosphereStopMidiChannel ?? 0,
+          })
+        }
       } catch (e) {
         console.error('Failed to load atmosphere volume:', e)
       }
@@ -109,8 +137,28 @@ function AtmospherePanel() {
         const currentSounds = soundsRef.current
         const currentMidiLearnMode = midiLearnModeRef.current
         const currentEditingSound = editingSoundRef.current
+        const currentStopMidiLearnMode = stopMidiLearnModeRef.current
+        const currentStopMidiConfig = stopMidiConfigRef.current
 
-        // 如果处于 MIDI 学习模式
+        // 如果处于停止按钮 MIDI 学习模式
+        if (currentStopMidiLearnMode) {
+          const newConfig = {
+            messageType: midiEvent.messageType,
+            note: midiEvent.data1,
+            channel: midiEvent.channel,
+          }
+          setStopMidiConfig(newConfig)
+          setStopMidiLearnMode(false)
+          // 保存到数据库
+          audioApi.saveAudioConfig({
+            atmosphereStopMidiMessageType: midiEvent.messageType,
+            atmosphereStopMidiNote: midiEvent.data1,
+            atmosphereStopMidiChannel: midiEvent.channel,
+          }).catch(e => console.error('Failed to save stop MIDI config:', e))
+          return
+        }
+
+        // 如果处于音效 MIDI 学习模式
         if (currentMidiLearnMode !== null && currentEditingSound?.id === currentMidiLearnMode) {
           setEditingSound({
             ...currentEditingSound,
@@ -120,6 +168,20 @@ function AtmospherePanel() {
           })
           setMidiLearnMode(null)
           return
+        }
+
+        // 检查是否匹配停止按钮
+        if (currentStopMidiConfig.note !== null) {
+          const matchesStop =
+            currentStopMidiConfig.messageType === midiEvent.messageType &&
+            currentStopMidiConfig.note === midiEvent.data1 &&
+            currentStopMidiConfig.channel === midiEvent.channel &&
+            (midiEvent.messageType !== 'NOTE' || midiEvent.isOn)
+
+          if (matchesStop) {
+            stopSoundRef.current()
+            return
+          }
         }
 
         // 触发对应的音效
@@ -192,9 +254,32 @@ function AtmospherePanel() {
   }
 
   return (
-    <div className="p-3">
+    <div className="p-3 flex flex-col h-full">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-medium">气氛组</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-medium">气氛组</h3>
+          {/* 停止按钮 */}
+          <button
+            onClick={() => stopSound()}
+            className="flex items-center gap-1 px-1.5 py-0.5 bg-red-900/50 hover:bg-red-800/60 text-red-400 hover:text-red-300 rounded text-xs transition-colors"
+            title="停止所有音效"
+          >
+            <Square className="w-3 h-3" />
+          </button>
+          <button
+            onClick={() => setStopMidiLearnMode(!stopMidiLearnMode)}
+            className={`text-[10px] px-1 py-0.5 rounded transition-colors ${
+              stopMidiLearnMode
+                ? 'bg-primary-600 text-white'
+                : stopMidiConfig.note !== null
+                  ? 'bg-green-900/50 text-green-400'
+                  : 'bg-dark-700 text-dark-500 hover:text-white'
+            }`}
+            title={stopMidiLearnMode ? '等待 MIDI 信号...' : stopMidiConfig.note !== null ? `${stopMidiConfig.messageType}: ${stopMidiConfig.note}` : 'MIDI 学习'}
+          >
+            {stopMidiLearnMode ? '...' : 'M'}
+          </button>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowMidiSettings(!showMidiSettings)}
@@ -263,8 +348,9 @@ function AtmospherePanel() {
         </span>
       </div>
 
-      {/* 音效按钮网格 */}
-      <div className="grid grid-cols-4 gap-2 mb-2">
+      {/* 音效按钮网格 - 添加滚动支持 */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="grid grid-cols-4 gap-2 pb-2">
         {sounds.map((sound) => (
           <div key={sound.id} className="relative group">
             <button
@@ -307,6 +393,7 @@ function AtmospherePanel() {
         >
           <Plus className="w-4 h-4 mx-auto" />
         </button>
+        </div>
       </div>
 
       {/* 编辑弹窗 */}

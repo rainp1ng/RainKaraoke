@@ -309,6 +309,16 @@ pub fn import_songs(
     // 分组
     let groups = file_scanner::group_files_into_songs(files);
 
+    println!("[Library] Scanned {} file groups", groups.len());
+    for group in &groups {
+        println!("[Library] Group '{}' - video:{}, vocal:{}, inst:{}, lyrics:{:?}",
+            group.base_name,
+            group.video.is_some(),
+            group.vocal_audio.is_some(),
+            group.instrumental_audio.is_some(),
+            group.lyrics.as_ref().map(|l| &l.file_name));
+    }
+
     let conn = crate::db::get_connection(&db);
     let mut result = ImportResult {
         success: 0,
@@ -338,16 +348,46 @@ pub fn import_songs(
             .and_then(|m| m.title.clone())
             .unwrap_or_else(|| group.base_name.clone());
 
-        // 检查是否已存在
-        let exists: bool = conn
+        // 检查是否已存在，并获取歌曲ID
+        // 尝试多种匹配方式：精确匹配标题、base_name匹配、模糊匹配
+        let existing_id: Option<i64> = conn
             .query_row(
-                "SELECT 1 FROM songs WHERE title = ? AND (artist = ? OR (artist IS NULL AND ? IS NULL))",
-                rusqlite::params![&title, metadata.as_ref().and_then(|m| m.artist.as_ref()), metadata.as_ref().and_then(|m| m.artist.as_ref())],
-                |_| Ok(true),
+                "SELECT id FROM songs WHERE \
+                 (title = ? AND (artist = ? OR (artist IS NULL AND ? IS NULL))) \
+                 OR title = ? COLLATE NOCASE \
+                 OR title LIKE ? COLLATE NOCASE \
+                 OR ? LIKE '%' || title || '%' COLLATE NOCASE \
+                 LIMIT 1",
+                rusqlite::params![
+                    &title,
+                    metadata.as_ref().and_then(|m| m.artist.as_ref()),
+                    metadata.as_ref().and_then(|m| m.artist.as_ref()),
+                    &group.base_name,
+                    format!("%{}%", &group.base_name),
+                    &group.base_name
+                ],
+                |row| row.get(0),
             )
-            .unwrap_or(false);
+            .ok();
 
-        if exists {
+        if let Some(song_id) = existing_id {
+            // 歌曲已存在，检查是否需要更新歌词
+            if let Some(ref lyrics) = group.lyrics {
+                let current_lyrics: Option<String> = conn
+                    .query_row("SELECT lyrics_path FROM songs WHERE id = ?", [song_id], |row| row.get(0))
+                    .ok()
+                    .flatten();
+
+                if current_lyrics.is_none() {
+                    // 没有歌词，更新歌词
+                    let lyrics_format = metadata_extractor::detect_lyrics_format(&lyrics.path);
+                    conn.execute(
+                        "UPDATE songs SET lyrics_path = ?, lyrics_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        rusqlite::params![lyrics.path.to_string_lossy().to_string(), lyrics_format, song_id],
+                    ).ok();
+                    println!("[Library] Updated lyrics for existing song: {}", title);
+                }
+            }
             result.skipped += 1;
             continue;
         }
@@ -360,6 +400,8 @@ pub fn import_songs(
         let lyrics_format = group.lyrics.as_ref().and_then(|f| {
             metadata_extractor::detect_lyrics_format(&f.path)
         });
+
+        println!("[Library] Inserting song '{}' with lyrics: {:?}", title, lyrics_path);
 
         match conn.execute(
             "INSERT INTO songs (title, artist, album, duration, video_path, vocal_audio_path, \
@@ -401,26 +443,40 @@ pub fn import_songs(
 
             println!("[Library] Processing standalone lyrics: '{}' (base_name: '{}')", lyrics.file_name, base_name);
 
-            // 尝试匹配已有歌曲（不区分大小写）
+            // 尝试匹配已有歌曲（多种匹配方式）
+            // 1. 精确匹配
+            // 2. 歌曲标题包含base_name
+            // 3. base_name包含歌曲标题
             let matched: Option<i64> = conn
                 .query_row(
-                    "SELECT id FROM songs WHERE title = ? COLLATE NOCASE OR title LIKE ? COLLATE NOCASE LIMIT 1",
-                    rusqlite::params![base_name, format!("%{}%", base_name)],
+                    "SELECT id FROM songs WHERE \
+                     title = ? COLLATE NOCASE \
+                     OR title LIKE ? COLLATE NOCASE \
+                     OR ? LIKE '%' || title || '%' COLLATE NOCASE \
+                     ORDER BY \
+                       CASE WHEN title = ? COLLATE NOCASE THEN 0 \
+                            WHEN title LIKE ? COLLATE NOCASE THEN 1 \
+                            ELSE 2 END \
+                     LIMIT 1",
+                    rusqlite::params![
+                        base_name,
+                        format!("%{}%", base_name),
+                        base_name,
+                        base_name,
+                        format!("%{}%", base_name)
+                    ],
                     |row| row.get(0),
                 )
                 .ok();
 
             if let Some(song_id) = matched {
                 // 检查是否已有歌词
-                let has_lyrics: bool = conn
-                    .query_row(
-                        "SELECT lyrics_path IS NOT NULL FROM songs WHERE id = ?",
-                        [song_id],
-                        |row| row.get::<_, i32>(0).map(|v| v == 1),
-                    )
-                    .unwrap_or(false);
+                let current_lyrics: Option<String> = conn
+                    .query_row("SELECT lyrics_path FROM songs WHERE id = ?", [song_id], |row| row.get(0))
+                    .ok()
+                    .flatten();
 
-                if has_lyrics {
+                if current_lyrics.is_some() {
                     println!("[Library] Song id {} already has lyrics, skipping", song_id);
                     result.skipped += 1;
                 } else {
@@ -662,20 +718,23 @@ pub fn import_vocal(db: State<Database>, songId: i64, filePath: String) -> Resul
 pub fn import_lyrics(db: State<Database>, songId: i64, filePath: String) -> Result<bool, String> {
     let path = std::path::Path::new(&filePath);
     if !path.exists() {
+        println!("[Library] Lyrics file does not exist: {}", filePath);
         return Err("文件不存在".to_string());
     }
 
     // 检测歌词格式
     let lyrics_format = metadata_extractor::detect_lyrics_format(path);
+    println!("[Library] Importing lyrics: {} (format: {:?})", filePath, lyrics_format);
 
     let conn = crate::db::get_connection(&db);
 
     conn.execute(
         "UPDATE songs SET lyrics_path = ?, lyrics_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        rusqlite::params![filePath, lyrics_format, songId],
+        rusqlite::params![&filePath, &lyrics_format, songId],
     )
     .map_err(|e| e.to_string())?;
 
+    println!("[Library] Lyrics imported successfully for song {}", songId);
     Ok(true)
 }
 

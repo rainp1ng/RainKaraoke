@@ -62,9 +62,8 @@ impl AtmosphereManager {
     }
 
     /// 停止音效
-    pub fn stop_sound(&mut self, _sound_id: Option<i64>) -> Result<(), String> {
-        // 由于每次播放独立，暂不支持停止
-        Ok(())
+    pub fn stop_sound(&mut self, sound_id: Option<i64>) -> Result<(), String> {
+        self.audio_player.stop(sound_id)
     }
 
     /// 设置音量

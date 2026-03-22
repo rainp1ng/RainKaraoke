@@ -15,11 +15,30 @@ pub fn get_lyrics(db: State<Database>, songId: i64) -> Result<Option<Lyrics>, St
     );
 
     match result {
-        Ok((Some(path), _)) => {
+        Ok((Some(path), format)) => {
+            println!("[Lyrics] Loading lyrics from: {} (format: {:?})", path, format);
             let path = PathBuf::from(&path);
-            Ok(lyrics_parser::parse_lyrics_file(&path))
+
+            if !path.exists() {
+                println!("[Lyrics] File does not exist: {:?}", path);
+                return Ok(None);
+            }
+
+            match lyrics_parser::parse_lyrics_file(&path) {
+                Some(lyrics) => {
+                    println!("[Lyrics] Parsed {} lines", lyrics.lines.len());
+                    Ok(Some(lyrics))
+                }
+                None => {
+                    println!("[Lyrics] Failed to parse lyrics file");
+                    Ok(None)
+                }
+            }
         }
-        Ok((None, _)) => Ok(None),
+        Ok((None, _)) => {
+            println!("[Lyrics] No lyrics path for song {}", songId);
+            Ok(None)
+        }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e.to_string()),
     }

@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { audioApi, midiApi } from '@/lib/api'
 import type { AudioDevice } from '@/types'
+import { useShortcutStore } from '@/stores'
+import { Music } from 'lucide-react'
+import { listen } from '@tauri-apps/api/event'
 
 function Settings() {
   const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([])
@@ -9,10 +12,58 @@ function Settings() {
   const [audioConfig, setAudioConfig] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { config: shortcutConfig, midiConfig, learningKey, learningMidi, setConfig, setMidiConfig, startLearning, stopLearning, startMidiLearning, stopMidiLearning, saveConfig } = useShortcutStore()
+  const learningMidiRef = useRef<string | null>(null)
 
   useEffect(() => {
     loadData()
   }, [])
+
+  // 同步 learningMidi 到 ref
+  useEffect(() => {
+    learningMidiRef.current = learningMidi
+  }, [learningMidi])
+
+  // 处理快捷键学习
+  useEffect(() => {
+    if (!learningKey) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setConfig({ [learningKey]: e.code })
+      saveConfig()
+      stopLearning()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [learningKey, setConfig, saveConfig, stopLearning])
+
+  // 处理 MIDI 学习
+  useEffect(() => {
+    const unlisten = listen('midi:event', async (event) => {
+      const currentLearningMidi = learningMidiRef.current
+      if (!currentLearningMidi) return
+
+      const midiEvent = event.payload as {
+        messageType: 'NOTE' | 'CC' | 'PC'
+        channel: number
+        data1: number
+        data2: number
+        isOn: boolean
+      }
+
+      // 只响应 Note On 事件
+      if (midiEvent.messageType === 'NOTE' && midiEvent.isOn) {
+        setMidiConfig({ [currentLearningMidi]: { note: midiEvent.data1, channel: midiEvent.channel } })
+        saveConfig()
+        stopMidiLearning()
+      }
+    })
+
+    return () => { unlisten.then(fn => fn()) }
+  }, [setMidiConfig, saveConfig, stopMidiLearning])
 
   const loadData = async () => {
     setLoading(true)
@@ -332,6 +383,69 @@ function Settings() {
             {midiDevices.length === 0 && (
               <p className="text-sm text-dark-400">未检测到 MIDI 设备，请确保设备已连接</p>
             )}
+          </div>
+        </section>
+
+        {/* 快捷键设置 */}
+        <section className="bg-dark-800 rounded-lg p-4">
+          <h2 className="text-lg font-semibold mb-4">快捷键控制</h2>
+
+          <div className="space-y-3">
+            {[
+              { key: 'playPause', label: '播放/暂停' },
+              { key: 'nextSong', label: '下一首' },
+              { key: 'prevSong', label: '上一首/重播' },
+              { key: 'stop', label: '停止' },
+              { key: 'toggleVocal', label: '切换原唱/伴奏' },
+            ].map(({ key, label }) => {
+              const midiBinding = midiConfig[key as keyof typeof midiConfig]
+              return (
+                <div key={key} className="flex items-center justify-between gap-2">
+                  <span className="text-sm">{label}</span>
+                  <div className="flex items-center gap-2">
+                    {/* 键盘快捷键按钮 */}
+                    <button
+                      onClick={() => startLearning(key)}
+                      className={`px-3 py-1.5 rounded text-sm transition-colors ${
+                        learningKey === key
+                          ? 'bg-primary-600 text-white animate-pulse'
+                          : 'bg-dark-700 hover:bg-dark-600 text-dark-300'
+                      }`}
+                    >
+                      {learningKey === key ? '按下按键...' : shortcutConfig[key as keyof typeof shortcutConfig] || '未设置'}
+                    </button>
+
+                    {/* MIDI 学习按钮 */}
+                    <button
+                      onClick={() => {
+                        if (learningMidi === key) {
+                          stopMidiLearning()
+                        } else {
+                          startMidiLearning(key)
+                        }
+                      }}
+                      className={`p-1.5 rounded transition-colors ${
+                        learningMidi === key
+                          ? 'bg-primary-600 text-white animate-pulse'
+                          : midiBinding
+                            ? 'text-primary-400 bg-dark-700'
+                            : 'text-dark-500 hover:text-primary-400 bg-dark-700 hover:bg-dark-600'
+                      }`}
+                      title={midiBinding ? `MIDI: Note ${midiBinding.note} Ch${midiBinding.channel}` : 'MIDI 学习'}
+                    >
+                      <Music className="w-4 h-4" />
+                    </button>
+                    {learningMidi === key && (
+                      <span className="text-xs text-primary-400">等待MIDI...</span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+
+            <p className="text-xs text-dark-500 mt-2">
+              点击键盘按钮设置快捷键，点击音符按钮设置MIDI控制
+            </p>
           </div>
         </section>
 

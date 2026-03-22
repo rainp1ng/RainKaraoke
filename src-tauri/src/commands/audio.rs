@@ -56,7 +56,8 @@ pub fn get_audio_config(db: State<Database>) -> Result<AudioConfig, String> {
          master_volume, interlude_volume, atmosphere_volume, \
          ducking_enabled, ducking_threshold, ducking_ratio, ducking_attack_ms, ducking_release_ms, \
          COALESCE(ducking_recovery_delay, 3), \
-         midi_device_id, midi_enabled \
+         midi_device_id, midi_enabled, \
+         atmosphere_stop_midi_message_type, atmosphere_stop_midi_note, atmosphere_stop_midi_channel \
          FROM audio_config WHERE id = 1",
         [],
         |row| {
@@ -75,6 +76,9 @@ pub fn get_audio_config(db: State<Database>) -> Result<AudioConfig, String> {
                 ducking_recovery_delay: row.get(11)?,
                 midi_device_id: row.get(12)?,
                 midi_enabled: row.get::<_, i32>(13)? == 1,
+                atmosphere_stop_midi_message_type: row.get(14)?,
+                atmosphere_stop_midi_note: row.get(15)?,
+                atmosphere_stop_midi_channel: row.get(16)?,
             })
         },
     )
@@ -107,6 +111,9 @@ pub fn save_audio_config(
          ducking_recovery_delay = COALESCE(?12, ducking_recovery_delay), \
          midi_device_id = COALESCE(?13, midi_device_id), \
          midi_enabled = COALESCE(?14, midi_enabled), \
+         atmosphere_stop_midi_message_type = COALESCE(?15, atmosphere_stop_midi_message_type), \
+         atmosphere_stop_midi_note = COALESCE(?16, atmosphere_stop_midi_note), \
+         atmosphere_stop_midi_channel = COALESCE(?17, atmosphere_stop_midi_channel), \
          updated_at = CURRENT_TIMESTAMP WHERE id = 1",
         rusqlite::params![
             config.default_output_device,
@@ -123,6 +130,9 @@ pub fn save_audio_config(
             config.ducking_recovery_delay,
             config.midi_device_id,
             config.midi_enabled.map(|b| b as i32),
+            config.atmosphere_stop_midi_message_type,
+            config.atmosphere_stop_midi_note,
+            config.atmosphere_stop_midi_channel,
         ],
     )
     .map_err(|e| e.to_string())?;

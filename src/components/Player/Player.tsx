@@ -32,16 +32,23 @@ function Player() {
 
   const isPlaying = status === 'playing'
   const isPaused = status === 'paused'
+  const isIdle = status === 'idle'
   const hasSong = currentSong !== null
 
   // 处理播放/暂停
-  const handlePlayPause = () => {
-    if (!hasSong) return
-
+  const handlePlayPause = async () => {
     if (isPlaying) {
-      pause()
+      // 正在播放 -> 暂停
+      await pause()
     } else if (isPaused) {
-      resume()
+      // 暂停中 -> 恢复播放
+      await resume()
+    } else if (isIdle && items.length > 0) {
+      // 空闲状态 -> 播放队列第一首
+      const firstItem = items[0]
+      if (firstItem.song) {
+        await play(firstItem.song)
+      }
     }
   }
 
@@ -207,11 +214,11 @@ function Player() {
             onClick={handlePlayPause}
             disabled={!hasSong && items.length === 0}
             className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-              hasSong || items.length > 0
+              (hasSong || items.length > 0)
                 ? 'bg-primary-600 hover:bg-primary-700'
                 : 'bg-dark-700 opacity-50 cursor-not-allowed'
             }`}
-            title={isPlaying ? '暂停' : '播放'}
+            title={isPlaying ? '暂停' : isPaused ? '继续播放' : '播放队列第一首'}
           >
             {isPlaying ? (
               <Pause className="w-6 h-6" />
