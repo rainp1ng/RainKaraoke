@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: ShortcutConfig = {
   playPause: 'Space',
   nextSong: 'KeyC',
   prevSong: 'KeyV',
-  stop: 'Escape',
+  stop: 'KeyQ',
   toggleVocal: 'KeyX',
 }
 
