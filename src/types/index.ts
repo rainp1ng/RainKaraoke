@@ -241,3 +241,26 @@ export const EFFECT_TYPES: { type: string; name: string; icon: string }[] = [
   { type: 'gate', name: '噪声门', icon: 'DoorClosed' },
   { type: 'levelmeter', name: '电平表', icon: 'Activity' },
 ]
+
+// ============ 歌单类型 ============
+
+export interface Playlist {
+  id: number
+  name: string
+  description: string | null
+  coverPath: string | null
+  songCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PlaylistSong {
+  id: number
+  playlistId: number
+  songId: number
+  position: number
+  addedAt: string
+  title: string | null
+  artist: string | null
+  duration: number | null
+}

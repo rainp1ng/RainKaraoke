@@ -143,6 +143,19 @@ pub fn run() {
             // 歌词命令
             commands::lyrics::get_lyrics,
             commands::lyrics::parse_lyrics_content,
+
+            // 歌单命令
+            commands::playlist::get_playlists,
+            commands::playlist::get_playlist_by_id,
+            commands::playlist::create_playlist,
+            commands::playlist::update_playlist,
+            commands::playlist::delete_playlist,
+            commands::playlist::get_playlist_songs,
+            commands::playlist::add_song_to_playlist,
+            commands::playlist::remove_song_from_playlist,
+            commands::playlist::add_songs_to_playlist,
+            commands::playlist::move_playlist_song,
+            commands::playlist::clear_playlist,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

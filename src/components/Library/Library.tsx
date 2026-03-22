@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { open, confirm } from '@tauri-apps/plugin-dialog'
-import { Search, Plus, FolderOpen, Trash2, X, Loader2, MoreVertical, Music, FileText, Edit2 } from 'lucide-react'
-import { useLibraryStore, useQueueStore } from '@/stores'
+import { Search, Plus, FolderOpen, Trash2, X, Loader2, MoreVertical, Music, FileText, Edit2, ListMusic } from 'lucide-react'
+import { useLibraryStore, useQueueStore, usePlaylistStore } from '@/stores'
 import { formatDuration } from '@/utils/format'
 import { libraryApi } from '@/lib/api'
 import type { Song } from '@/types'
+import PlaylistPanel from '../Playlist/PlaylistPanel'
 
 interface EditFormData {
   title: string
@@ -36,20 +37,26 @@ function Library() {
   } = useLibraryStore()
 
   const { addToQueue, error: queueError, clearError } = useQueueStore()
+  const { playlists, loadPlaylists, addSongsToPlaylist } = usePlaylistStore()
 
+  const [activeTab, setActiveTab] = useState<'library' | 'playlist'>('library')
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{ success: number; skipped: number; failed: number } | null>(null)
   const [selectedSongs, setSelectedSongs] = useState<Set<number>>(new Set())
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
+  const [menuPosition, setMenuPosition] = useState<'up' | 'down'>('down') // 菜单弹出方向
   const [editingSong, setEditingSong] = useState<Song | null>(null)
   const [editForm, setEditForm] = useState<EditFormData>({ title: '', artist: '', album: '' })
   const [saving, setSaving] = useState(false)
+  const [showPlaylistMenu, setShowPlaylistMenu] = useState<number | null>(null) // 歌曲ID，显示添加到歌单菜单
+  const [showSongPlaylistMenu, setShowSongPlaylistMenu] = useState<number | null>(null) // 单首歌曲添加到歌单
 
   // 初始加载
   useEffect(() => {
     loadSongs()
     loadArtists()
     loadGenres()
+    loadPlaylists()
   }, [])
 
   // 处理导入文件夹
@@ -215,8 +222,60 @@ function Library() {
   // 计算总页数
   const totalPages = Math.ceil(totalCount / pageSize)
 
+  // 添加选中歌曲到歌单
+  const handleAddSelectedToPlaylist = async (playlistId: number) => {
+    const songIds = Array.from(selectedSongs)
+    await addSongsToPlaylist(playlistId, songIds)
+    setSelectedSongs(new Set())
+    setShowPlaylistMenu(null)
+  }
+
+  // 如果是歌单标签页，显示歌单面板
+  if (activeTab === 'playlist') {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* 标签页切换 */}
+        <div className="flex border-b border-dark-700">
+          <button
+            onClick={() => setActiveTab('library')}
+            className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-dark-400 hover:text-white transition-colors"
+          >
+            <Music className="w-4 h-4 inline-block mr-1" />
+            媒体库
+          </button>
+          <button
+            onClick={() => setActiveTab('playlist')}
+            className="px-4 py-2 text-sm font-medium border-b-2 border-primary-500 text-primary-400 transition-colors"
+          >
+            <ListMusic className="w-4 h-4 inline-block mr-1" />
+            歌单
+          </button>
+        </div>
+        <PlaylistPanel />
+      </div>
+    )
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 标签页切换 */}
+      <div className="flex border-b border-dark-700">
+        <button
+          onClick={() => setActiveTab('library')}
+          className="px-4 py-2 text-sm font-medium border-b-2 border-primary-500 text-primary-400 transition-colors"
+        >
+          <Music className="w-4 h-4 inline-block mr-1" />
+          媒体库
+        </button>
+        <button
+          onClick={() => setActiveTab('playlist')}
+          className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-dark-400 hover:text-white transition-colors"
+        >
+          <ListMusic className="w-4 h-4 inline-block mr-1" />
+          歌单
+        </button>
+      </div>
+
       {/* 搜索栏 */}
       <div className="p-4 border-b border-dark-700 space-y-3">
         <form onSubmit={handleSearch} className="flex gap-2">
@@ -396,14 +455,24 @@ function Library() {
                         <Plus className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => setMenuOpenId(menuOpenId === song.id ? null : song.id)}
+                        onClick={() => {
+                          if (menuOpenId === song.id) {
+                            setMenuOpenId(null)
+                          } else {
+                            // 前三首往下弹，其他往上弹
+                            setMenuPosition(index < 3 ? 'down' : 'up')
+                            setMenuOpenId(song.id)
+                          }
+                        }}
                         className="p-1 hover:bg-dark-600 rounded transition-colors"
                         title="更多操作"
                       >
                         <MoreVertical className="w-4 h-4" />
                       </button>
                       {menuOpenId === song.id && (
-                        <div className="absolute right-0 top-full mt-1 bg-dark-800 border border-dark-600 rounded shadow-lg z-10 min-w-[140px]">
+                        <div className={`absolute right-0 bg-dark-800 border border-dark-600 rounded shadow-lg z-10 min-w-[140px] ${
+                          menuPosition === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+                        }`}>
                           <button
                             onClick={() => handleOpenEdit(song)}
                             className="w-full px-3 py-2 text-left text-sm hover:bg-dark-700 flex items-center gap-2"
@@ -425,6 +494,35 @@ function Library() {
                             <FileText className="w-4 h-4" />
                             导入歌词
                           </button>
+                          <hr className="border-dark-600" />
+                          <button
+                            onClick={() => setShowSongPlaylistMenu(showSongPlaylistMenu === song.id ? null : song.id)}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-dark-700 flex items-center gap-2"
+                          >
+                            <ListMusic className="w-4 h-4" />
+                            添加到歌单
+                          </button>
+                          {showSongPlaylistMenu === song.id && (
+                            <div className="bg-dark-900 border-t border-dark-600 max-h-48 overflow-y-auto">
+                              {playlists.length === 0 ? (
+                                <div className="px-3 py-2 text-sm text-dark-400">暂无歌单</div>
+                              ) : (
+                                playlists.map((playlist) => (
+                                  <button
+                                    key={playlist.id}
+                                    onClick={async () => {
+                                      await addSongsToPlaylist(playlist.id, [song.id])
+                                      setShowSongPlaylistMenu(null)
+                                      setMenuOpenId(null)
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-sm hover:bg-dark-700 pl-6 truncate"
+                                  >
+                                    {playlist.name}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
                           <hr className="border-dark-600" />
                           <button
                             onClick={() => {
@@ -469,6 +567,32 @@ function Library() {
                 >
                   添加 {selectedSongs.size} 首到队列
                 </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowPlaylistMenu(showPlaylistMenu ? null : 1)}
+                    className="px-3 py-1 bg-dark-700 hover:bg-dark-600 rounded text-sm transition-colors flex items-center gap-1"
+                  >
+                    <ListMusic className="w-4 h-4" />
+                    添加到歌单
+                  </button>
+                  {showPlaylistMenu && (
+                    <div className="absolute bottom-full left-0 mb-1 bg-dark-800 border border-dark-600 rounded-lg shadow-lg min-w-[150px] max-h-60 overflow-y-auto">
+                      {playlists.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-dark-400">暂无歌单</div>
+                      ) : (
+                        playlists.map((playlist) => (
+                          <button
+                            key={playlist.id}
+                            onClick={() => handleAddSelectedToPlaylist(playlist.id)}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-dark-700 truncate"
+                          >
+                            {playlist.name}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={() => setSelectedSongs(new Set())}
                   className="px-3 py-1 bg-dark-700 hover:bg-dark-600 rounded text-sm transition-colors text-dark-400"
@@ -575,6 +699,18 @@ function Library() {
             </p>
           </div>
         </div>
+      )}
+
+      {/* 点击外部关闭菜单 */}
+      {(menuOpenId !== null || showPlaylistMenu !== null || showSongPlaylistMenu !== null) && (
+        <div
+          className="fixed inset-0 z-0"
+          onClick={() => {
+            setMenuOpenId(null)
+            setShowPlaylistMenu(null)
+            setShowSongPlaylistMenu(null)
+          }}
+        />
       )}
     </div>
   )

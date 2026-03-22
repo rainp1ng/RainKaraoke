@@ -14,6 +14,8 @@ import type {
   LiveAudioState,
   RecordingResult,
   DeviceInfo,
+  Playlist,
+  PlaylistSong,
 } from '@/types'
 
 // ============ 媒体库 API ============
@@ -668,5 +670,53 @@ export const lyricsApi = {
     }[]
   }> {
     return invoke('parse_lyrics_content', { content, format })
+  },
+}
+
+// ============ 歌单 API ============
+
+export const playlistApi = {
+  async getPlaylists(): Promise<Playlist[]> {
+    return invoke('get_playlists')
+  },
+
+  async getPlaylistById(id: number): Promise<Playlist | null> {
+    return invoke('get_playlist_by_id', { id })
+  },
+
+  async createPlaylist(name: string, description?: string): Promise<number> {
+    return invoke('create_playlist', { name, description })
+  },
+
+  async updatePlaylist(id: number, name?: string, description?: string): Promise<boolean> {
+    return invoke('update_playlist', { id, name, description })
+  },
+
+  async deletePlaylist(id: number): Promise<boolean> {
+    return invoke('delete_playlist', { id })
+  },
+
+  async getPlaylistSongs(playlistId: number): Promise<PlaylistSong[]> {
+    return invoke('get_playlist_songs', { playlistId })
+  },
+
+  async addSongToPlaylist(playlistId: number, songId: number): Promise<boolean> {
+    return invoke('add_song_to_playlist', { playlistId, songId })
+  },
+
+  async removeSongFromPlaylist(playlistId: number, songId: number): Promise<boolean> {
+    return invoke('remove_song_from_playlist', { playlistId, songId })
+  },
+
+  async addSongsToPlaylist(playlistId: number, songIds: number[]): Promise<number> {
+    return invoke('add_songs_to_playlist', { playlistId, songIds })
+  },
+
+  async movePlaylistSong(playlistId: number, songId: number, newPosition: number): Promise<boolean> {
+    return invoke('move_playlist_song', { playlistId, songId, newPosition })
+  },
+
+  async clearPlaylist(playlistId: number): Promise<boolean> {
+    return invoke('clear_playlist', { playlistId })
   },
 }

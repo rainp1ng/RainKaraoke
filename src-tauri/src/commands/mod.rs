@@ -7,3 +7,4 @@ pub mod midi;
 pub mod audio;
 pub mod effect;
 pub mod lyrics;
+pub mod playlist;
