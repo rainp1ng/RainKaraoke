@@ -1,12 +1,25 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { usePlaybackStore, useQueueStore, useShortcutStore, useVideoStore } from '@/stores'
 import { listen } from '@tauri-apps/api/event'
+
+// 长按检测配置
+const LONG_PRESS_DELAY = 400 // 长按触发延迟 (ms)
+const SEEK_INTERVAL = 200 // 持续 seek 间隔 (ms)
+const SEEK_LONG_PRESS_STEP = 2 // 长按时每次 seek 的秒数
+const SEEK_SINGLE_STEP = 10 // 单次按下的 seek 秒数
 
 export function useKeyboardShortcuts() {
   const { status, pause, resume, stop, currentSong, toggleVocal, isVocal, play } = usePlaybackStore()
   const { items, removeFromQueue, loadQueue } = useQueueStore()
   const { config, midiConfig, learningKey, learningMidi } = useShortcutStore()
-  const { toggleFullscreen, togglePiP, hasVideo } = useVideoStore()
+  const { triggerFullscreen, triggerPiP, hasVideo } = useVideoStore()
+
+  // 长按检测 ref
+  const seekTimeoutRef = useRef<number | null>(null)
+  const seekIntervalRef = useRef<number | null>(null)
+  const isSeekingRef = useRef<'forward' | 'backward' | null>(null)
+  const seekStartTimeRef = useRef<number>(0)
+  const seekTargetTimeRef = useRef<number>(0)
 
   // 执行播放/暂停
   const doPlayPause = useCallback(async () => {
@@ -69,18 +82,82 @@ export function useKeyboardShortcuts() {
   }, [status, isVocal, toggleVocal])
 
   // 执行全屏切换
-  const doToggleFullscreen = useCallback(async () => {
+  const doToggleFullscreen = useCallback(() => {
     if (hasVideo) {
-      await toggleFullscreen()
+      triggerFullscreen()
     }
-  }, [hasVideo, toggleFullscreen])
+  }, [hasVideo, triggerFullscreen])
 
   // 执行画中画切换
-  const doTogglePiP = useCallback(async () => {
+  const doTogglePiP = useCallback(() => {
     if (hasVideo) {
-      await togglePiP()
+      triggerPiP()
     }
-  }, [hasVideo, togglePiP])
+  }, [hasVideo, triggerPiP])
+
+  // 清除 seek 定时器
+  const clearSeekTimers = useCallback(() => {
+    if (seekTimeoutRef.current) {
+      clearTimeout(seekTimeoutRef.current)
+      seekTimeoutRef.current = null
+    }
+    if (seekIntervalRef.current) {
+      clearInterval(seekIntervalRef.current)
+      seekIntervalRef.current = null
+    }
+    isSeekingRef.current = null
+  }, [])
+
+  // 执行单次 seek (短按时用)
+  const doSingleSeek = useCallback((direction: 'forward' | 'backward') => {
+    const { currentTime, duration, seek } = usePlaybackStore.getState()
+    if (duration <= 0) return
+
+    const newTime = direction === 'forward'
+      ? Math.min(currentTime + SEEK_SINGLE_STEP, duration)
+      : Math.max(currentTime - SEEK_SINGLE_STEP, 0)
+    seek(newTime)
+  }, [])
+
+  // 开始 seek（检测长按）
+  const startSeek = useCallback((direction: 'forward' | 'backward') => {
+    seekStartTimeRef.current = Date.now()
+
+    // 记录初始时间
+    const { currentTime, duration } = usePlaybackStore.getState()
+    seekTargetTimeRef.current = currentTime
+
+    // 设置长按检测：超过延迟时间后开始持续 seek
+    seekTimeoutRef.current = window.setTimeout(() => {
+      // 进入长按模式，开始持续 seek
+      seekIntervalRef.current = window.setInterval(() => {
+        const { duration, seek } = usePlaybackStore.getState()
+        if (duration <= 0) {
+          clearSeekTimers()
+          return
+        }
+
+        // 使用 ref 追踪目标时间，避免异步问题
+        seekTargetTimeRef.current = direction === 'forward'
+          ? Math.min(seekTargetTimeRef.current + SEEK_LONG_PRESS_STEP, duration)
+          : Math.max(seekTargetTimeRef.current - SEEK_LONG_PRESS_STEP, 0)
+
+        seek(seekTargetTimeRef.current)
+      }, SEEK_INTERVAL)
+    }, LONG_PRESS_DELAY)
+  }, [clearSeekTimers])
+
+  // 停止 seek
+  const stopSeek = useCallback((direction: 'forward' | 'backward') => {
+    const elapsed = Date.now() - seekStartTimeRef.current
+
+    // 如果松开时间小于长按延迟，说明是短按，执行单次 10s 跳转
+    if (elapsed < LONG_PRESS_DELAY && seekTimeoutRef.current) {
+      doSingleSeek(direction)
+    }
+
+    clearSeekTimers()
+  }, [doSingleSeek, clearSeekTimers])
 
   // 键盘事件处理
   const handleKeyDown = useCallback(async (e: KeyboardEvent) => {
@@ -135,25 +212,61 @@ export function useKeyboardShortcuts() {
     // 全屏
     if (code === config.fullscreen) {
       e.preventDefault()
-      await doToggleFullscreen()
+      doToggleFullscreen()
       return
     }
 
     // 画中画
     if (code === config.pip) {
       e.preventDefault()
-      await doTogglePiP()
+      doTogglePiP()
       return
     }
-  }, [config, learningKey, learningMidi, doPlayPause, doStop, doNextSong, doPrevSong, doToggleVocal, doToggleFullscreen, doTogglePiP])
+
+    // 快进/快退（左右方向键）
+    if (code === 'ArrowRight' && status !== 'idle') {
+      e.preventDefault()
+      if (e.repeat) return
+      if (!isSeekingRef.current) {
+        isSeekingRef.current = 'forward'
+        startSeek('forward')
+      }
+      return
+    }
+
+    if (code === 'ArrowLeft' && status !== 'idle') {
+      e.preventDefault()
+      if (e.repeat) return
+      if (!isSeekingRef.current) {
+        isSeekingRef.current = 'backward'
+        startSeek('backward')
+      }
+      return
+    }
+  }, [config, learningKey, learningMidi, status, doPlayPause, doStop, doNextSong, doPrevSong, doToggleVocal, doToggleFullscreen, doTogglePiP, startSeek])
+
+  // 键盘松开事件处理
+  const handleKeyUp = useCallback((e: KeyboardEvent) => {
+    const code = e.code
+
+    // 松开方向键时停止 seek
+    if (code === 'ArrowRight' && isSeekingRef.current === 'forward') {
+      stopSeek('forward')
+    } else if (code === 'ArrowLeft' && isSeekingRef.current === 'backward') {
+      stopSeek('backward')
+    }
+  }, [stopSeek])
 
   // 键盘监听
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      clearSeekTimers()
     }
-  }, [handleKeyDown])
+  }, [handleKeyDown, handleKeyUp, clearSeekTimers])
 
   // MIDI 事件监听
   useEffect(() => {
@@ -188,9 +301,9 @@ export function useKeyboardShortcuts() {
       } else if (checkMidi(midiConfig.toggleVocal)) {
         await doToggleVocal()
       } else if (checkMidi(midiConfig.fullscreen)) {
-        await doToggleFullscreen()
+        doToggleFullscreen()
       } else if (checkMidi(midiConfig.pip)) {
-        await doTogglePiP()
+        doTogglePiP()
       }
     })
 

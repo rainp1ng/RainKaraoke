@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Maximize, PictureInPicture, X } from 'lucide-react'
@@ -10,6 +10,9 @@ function VideoPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null)
   const separateAudioRef = useRef<HTMLAudioElement>(null)
   const lastTimeRef = useRef<number>(0)
+  const lastFullscreenTriggerRef = useRef<number>(0)
+  const lastPipTriggerRef = useRef<number>(0)
+  const isSeekingRef = useRef<boolean>(false)
 
   const {
     currentSong,
@@ -23,7 +26,15 @@ function VideoPlayer() {
     setDuration,
   } = usePlaybackStore()
 
-  const { isFullscreen, setVideoRef, setHasVideo, setIsFullscreen, toggleFullscreen, togglePiP } = useVideoStore()
+  const {
+    isFullscreen,
+    isPiP,
+    fullscreenTrigger,
+    pipTrigger,
+    setHasVideo,
+    setIsFullscreen,
+    setIsPiP,
+  } = useVideoStore()
 
   // 获取视频路径
   const videoPath = currentSong?.videoPath
@@ -46,16 +57,58 @@ function VideoPlayer() {
   // 获取主播放器
   const getMainPlayer = () => hasVideo ? videoRef.current : audioRef.current
 
-  // 同步 videoRef 到 store
-  useEffect(() => {
-    setVideoRef(videoRef.current)
-    return () => setVideoRef(null)
-  }, [setVideoRef])
-
   // 同步 hasVideo 到 store
   useEffect(() => {
     setHasVideo(hasVideo)
   }, [hasVideo, setHasVideo])
+
+  // 全屏切换函数
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      const win = getCurrentWindow()
+      const fs = await win.isFullscreen()
+      await win.setFullscreen(!fs)
+      // 状态更新由 onResized 事件监听器处理，避免竞态条件
+    } catch (err) {
+      console.error('全屏失败:', err)
+    }
+  }, [])
+
+  // 画中画切换函数
+  const togglePiP = useCallback(async () => {
+    const video = videoRef.current
+    if (!video || !hasVideo) return
+
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture()
+        setIsPiP(false)
+      } else {
+        await video.requestPictureInPicture()
+        setIsPiP(true)
+      }
+    } catch (err) {
+      console.error('画中画失败:', err)
+    }
+  }, [hasVideo, setIsPiP])
+
+  // 监听全屏触发
+  useEffect(() => {
+    // 只有 trigger 真正变化时才触发，避免 hasVideo 变化时重复触发
+    if (fullscreenTrigger !== lastFullscreenTriggerRef.current && hasVideo) {
+      lastFullscreenTriggerRef.current = fullscreenTrigger
+      toggleFullscreen()
+    }
+  }, [fullscreenTrigger, hasVideo, toggleFullscreen])
+
+  // 监听画中画触发
+  useEffect(() => {
+    // 只有 trigger 真正变化时才触发
+    if (pipTrigger !== lastPipTriggerRef.current && hasVideo) {
+      lastPipTriggerRef.current = pipTrigger
+      togglePiP()
+    }
+  }, [pipTrigger, hasVideo, togglePiP])
 
   // 播放控制
   useEffect(() => {
@@ -133,11 +186,18 @@ function VideoPlayer() {
     if (!player) return
 
     const diff = Math.abs(currentTime - lastTimeRef.current)
-    if (diff > 1 && Math.abs(currentTime - player.currentTime) > 0.5) {
+    // diff >= 0.5 表示非正常播放的时间变化（即 seek 操作）
+    // 正常播放时 timeupdate 每 250ms 更新一次，diff 约 0.25 秒
+    if (diff >= 0.5 && Math.abs(currentTime - player.currentTime) > 0.3) {
+      isSeekingRef.current = true
       player.currentTime = currentTime
       if (useSeparateAudio && separateAudioRef.current) {
         separateAudioRef.current.currentTime = currentTime
       }
+      // 短暂延迟后重置标志，让 timeupdate 事件有机会恢复更新
+      setTimeout(() => {
+        isSeekingRef.current = false
+      }, 100)
     }
     lastTimeRef.current = currentTime
   }, [currentTime, hasVideo, useSeparateAudio])
@@ -179,9 +239,13 @@ function VideoPlayer() {
   // 时间更新
   const handleTimeUpdate = () => {
     const player = getMainPlayer()
-    if (player) {
+
+    // 如果正在进行 seek 操作，跳过 currentTime 更新避免竞争，但仍需同步独立音频
+    if (!isSeekingRef.current && player) {
       setCurrentTime(player.currentTime)
     }
+
+    // 同步独立音频轨道
     if (useSeparateAudio && videoRef.current && separateAudioRef.current) {
       videoRef.current.muted = true
       const diff = Math.abs(videoRef.current.currentTime - separateAudioRef.current.currentTime)
@@ -224,6 +288,14 @@ function VideoPlayer() {
   // 监听窗口全屏状态变化
   useEffect(() => {
     const win = getCurrentWindow()
+
+    // 初始化时同步全屏状态
+    win.isFullscreen().then(fs => {
+      setIsFullscreen(fs)
+    }).catch(err => {
+      console.error('初始化全屏状态失败:', err)
+    })
+
     const unlisten = win.onResized(async () => {
       try {
         const fs = await win.isFullscreen()
