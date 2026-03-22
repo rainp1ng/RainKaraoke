@@ -1,11 +1,12 @@
 import { useEffect, useCallback } from 'react'
-import { usePlaybackStore, useQueueStore, useShortcutStore } from '@/stores'
+import { usePlaybackStore, useQueueStore, useShortcutStore, useVideoStore } from '@/stores'
 import { listen } from '@tauri-apps/api/event'
 
 export function useKeyboardShortcuts() {
   const { status, pause, resume, stop, currentSong, toggleVocal, isVocal, play } = usePlaybackStore()
   const { items, removeFromQueue, loadQueue } = useQueueStore()
   const { config, midiConfig, learningKey, learningMidi } = useShortcutStore()
+  const { toggleFullscreen, togglePiP, hasVideo } = useVideoStore()
 
   // 执行播放/暂停
   const doPlayPause = useCallback(async () => {
@@ -67,6 +68,20 @@ export function useKeyboardShortcuts() {
     }
   }, [status, isVocal, toggleVocal])
 
+  // 执行全屏切换
+  const doToggleFullscreen = useCallback(async () => {
+    if (hasVideo) {
+      await toggleFullscreen()
+    }
+  }, [hasVideo, toggleFullscreen])
+
+  // 执行画中画切换
+  const doTogglePiP = useCallback(async () => {
+    if (hasVideo) {
+      await togglePiP()
+    }
+  }, [hasVideo, togglePiP])
+
   // 键盘事件处理
   const handleKeyDown = useCallback(async (e: KeyboardEvent) => {
     // 如果正在学习快捷键，不触发任何动作
@@ -116,7 +131,21 @@ export function useKeyboardShortcuts() {
       await doToggleVocal()
       return
     }
-  }, [config, learningKey, learningMidi, doPlayPause, doStop, doNextSong, doPrevSong, doToggleVocal])
+
+    // 全屏
+    if (code === config.fullscreen) {
+      e.preventDefault()
+      await doToggleFullscreen()
+      return
+    }
+
+    // 画中画
+    if (code === config.pip) {
+      e.preventDefault()
+      await doTogglePiP()
+      return
+    }
+  }, [config, learningKey, learningMidi, doPlayPause, doStop, doNextSong, doPrevSong, doToggleVocal, doToggleFullscreen, doTogglePiP])
 
   // 键盘监听
   useEffect(() => {
@@ -158,9 +187,13 @@ export function useKeyboardShortcuts() {
         await doStop()
       } else if (checkMidi(midiConfig.toggleVocal)) {
         await doToggleVocal()
+      } else if (checkMidi(midiConfig.fullscreen)) {
+        await doToggleFullscreen()
+      } else if (checkMidi(midiConfig.pip)) {
+        await doTogglePiP()
       }
     })
 
     return () => { unlisten.then(fn => fn()) }
-  }, [midiConfig, learningMidi, doPlayPause, doNextSong, doPrevSong, doStop, doToggleVocal])
+  }, [midiConfig, learningMidi, doPlayPause, doNextSong, doPrevSong, doStop, doToggleVocal, doToggleFullscreen, doTogglePiP])
 }

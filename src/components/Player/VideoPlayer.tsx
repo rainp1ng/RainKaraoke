@@ -1,8 +1,8 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Maximize, PictureInPicture, X } from 'lucide-react'
-import { usePlaybackStore, useQueueStore } from '@/stores'
+import { usePlaybackStore, useQueueStore, useVideoStore } from '@/stores'
 import { semitonesToRatio } from '@/utils/pitchShifter'
 
 function VideoPlayer() {
@@ -10,8 +10,6 @@ function VideoPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null)
   const separateAudioRef = useRef<HTMLAudioElement>(null)
   const lastTimeRef = useRef<number>(0)
-
-  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const {
     currentSong,
@@ -24,6 +22,8 @@ function VideoPlayer() {
     setCurrentTime,
     setDuration,
   } = usePlaybackStore()
+
+  const { isFullscreen, setVideoRef, setHasVideo, setIsFullscreen, toggleFullscreen, togglePiP } = useVideoStore()
 
   // 获取视频路径
   const videoPath = currentSong?.videoPath
@@ -45,6 +45,17 @@ function VideoPlayer() {
 
   // 获取主播放器
   const getMainPlayer = () => hasVideo ? videoRef.current : audioRef.current
+
+  // 同步 videoRef 到 store
+  useEffect(() => {
+    setVideoRef(videoRef.current)
+    return () => setVideoRef(null)
+  }, [setVideoRef])
+
+  // 同步 hasVideo 到 store
+  useEffect(() => {
+    setHasVideo(hasVideo)
+  }, [hasVideo, setHasVideo])
 
   // 播放控制
   useEffect(() => {
@@ -210,33 +221,6 @@ function VideoPlayer() {
     console.error('媒体错误:', target.error)
   }
 
-  // 视频全屏 - 使用 Tauri 窗口全屏
-  const toggleFullscreen = async () => {
-    try {
-      const win = getCurrentWindow()
-      const fs = await win.isFullscreen()
-      await win.setFullscreen(!fs)
-      setIsFullscreen(!fs)
-    } catch (err) {
-      console.error('全屏失败:', err)
-    }
-  }
-
-  // 画中画
-  const togglePiP = async () => {
-    const video = videoRef.current
-    if (!video) return
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture()
-      } else {
-        await video.requestPictureInPicture()
-      }
-    } catch (err) {
-      console.error('画中画失败:', err)
-    }
-  }
-
   // 监听窗口全屏状态变化
   useEffect(() => {
     const win = getCurrentWindow()
@@ -249,7 +233,7 @@ function VideoPlayer() {
       }
     })
     return () => { unlisten.then((f: () => void) => f()) }
-  }, [])
+  }, [setIsFullscreen])
 
   // 全屏模式下的视频播放器
   if (isFullscreen && hasVideo) {

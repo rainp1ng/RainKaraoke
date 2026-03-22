@@ -11,6 +11,8 @@ export interface ShortcutConfig {
   prevSong: string        // 上一首
   stop: string            // 停止
   toggleVocal: string     // 切换原唱/伴奏
+  fullscreen: string      // 全屏
+  pip: string             // 画中画
 }
 
 export interface MidiConfig {
@@ -19,6 +21,8 @@ export interface MidiConfig {
   prevSong: MidiBinding | null
   stop: MidiBinding | null
   toggleVocal: MidiBinding | null
+  fullscreen: MidiBinding | null
+  pip: MidiBinding | null
 }
 
 interface ShortcutStore {
@@ -42,6 +46,8 @@ const DEFAULT_CONFIG: ShortcutConfig = {
   prevSong: 'KeyV',
   stop: 'KeyQ',
   toggleVocal: 'KeyX',
+  fullscreen: 'KeyF',
+  pip: 'KeyO',
 }
 
 const STORAGE_KEY = 'keyboardShortcuts'
@@ -55,6 +61,8 @@ export const useShortcutStore = create<ShortcutStore>((set, get) => ({
     prevSong: null,
     stop: null,
     toggleVocal: null,
+    fullscreen: null,
+    pip: null,
   },
   learningKey: null,
   learningMidi: null,
