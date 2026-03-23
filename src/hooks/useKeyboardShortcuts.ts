@@ -124,7 +124,7 @@ export function useKeyboardShortcuts() {
     seekStartTimeRef.current = Date.now()
 
     // 记录初始时间
-    const { currentTime, duration } = usePlaybackStore.getState()
+    const { currentTime } = usePlaybackStore.getState()
     seekTargetTimeRef.current = currentTime
 
     // 设置长按检测：超过延迟时间后开始持续 seek

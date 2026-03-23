@@ -13,6 +13,7 @@ function VideoPlayer() {
   const lastFullscreenTriggerRef = useRef<number>(0)
   const lastPipTriggerRef = useRef<number>(0)
   const isSeekingRef = useRef<boolean>(false)
+  const lastSongIdRef = useRef<number | null>(null)
 
   const {
     currentSong,
@@ -28,7 +29,6 @@ function VideoPlayer() {
 
   const {
     isFullscreen,
-    isPiP,
     fullscreenTrigger,
     pipTrigger,
     setHasVideo,
@@ -61,6 +61,36 @@ function VideoPlayer() {
   useEffect(() => {
     setHasVideo(hasVideo)
   }, [hasVideo, setHasVideo])
+
+  // 歌曲切换时停止旧的媒体播放
+  useEffect(() => {
+    const currentSongId = currentSong?.id ?? null
+
+    // 如果歌曲 ID 变化了，停止旧的媒体
+    if (lastSongIdRef.current !== null && lastSongIdRef.current !== currentSongId) {
+      console.log('[VideoPlayer] 歌曲切换，停止旧媒体:', lastSongIdRef.current, '->', currentSongId)
+
+      // 停止视频
+      if (videoRef.current) {
+        videoRef.current.pause()
+        videoRef.current.currentTime = 0
+      }
+
+      // 停止音频
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
+      }
+
+      // 停止独立音频
+      if (separateAudioRef.current) {
+        separateAudioRef.current.pause()
+        separateAudioRef.current.currentTime = 0
+      }
+    }
+
+    lastSongIdRef.current = currentSongId
+  }, [currentSong?.id])
 
   // 全屏切换函数
   const toggleFullscreen = useCallback(async () => {
@@ -115,9 +145,14 @@ function VideoPlayer() {
     const player = getMainPlayer()
     if (!player) return
 
+    console.log('[VideoPlayer] 播放控制:', { status, primaryMediaSrc, hasVideo })
+
     if (status === 'playing') {
-      player.play().catch(e => console.error('播放失败:', e))
-      if (useSeparateAudio && separateAudioRef.current) {
+      // 只有当媒体暂停或未开始时才调用 play
+      if (player.paused) {
+        player.play().catch(e => console.error('播放失败:', e))
+      }
+      if (useSeparateAudio && separateAudioRef.current && separateAudioRef.current.paused) {
         separateAudioRef.current.play().catch(e => console.error('独立音频播放失败:', e))
       }
     } else if (status === 'paused') {
@@ -133,7 +168,7 @@ function VideoPlayer() {
         separateAudioRef.current.currentTime = 0
       }
     }
-  }, [status, hasVideo, useSeparateAudio])
+  }, [status, primaryMediaSrc, hasVideo, useSeparateAudio])
 
   // 速度控制
   useEffect(() => {
@@ -219,9 +254,8 @@ function VideoPlayer() {
       player.playbackRate = speed * pitchRatio
 
       setDuration(player.duration)
-      if (status === 'playing') {
-        player.play().catch(e => console.error('自动播放失败:', e))
-      }
+      // 注意：不在这里调用 play()，由播放控制 useEffect 统一管理
+      // 避免重复调用导致多个音轨同时播放
     }
     // 同样设置独立音频的音量和音调
     if (useSeparateAudio && separateAudioRef.current) {

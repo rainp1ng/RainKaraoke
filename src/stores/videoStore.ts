@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 
 interface VideoStore {
   isFullscreen: boolean
@@ -15,7 +14,7 @@ interface VideoStore {
   triggerPiP: () => void
 }
 
-export const useVideoStore = create<VideoStore>((set, get) => ({
+export const useVideoStore = create<VideoStore>((set) => ({
   isFullscreen: false,
   isPiP: false,
   hasVideo: false,

@@ -41,9 +41,11 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
 
     // 先停止过场音乐
     try {
+      console.log('[播放] 正在停止过场音乐...')
       await interludeApi.stopInterlude()
+      console.log('[播放] 过场音乐已停止')
     } catch (e) {
-      // 忽略错误
+      console.error('[播放] 停止过场音乐失败:', e)
     }
 
     // 调用后端播放歌曲

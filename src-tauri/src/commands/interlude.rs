@@ -135,7 +135,18 @@ pub fn resume_interlude(state: State<AppState>) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn stop_interlude(state: State<AppState>) -> Result<bool, String> {
+    println!("[Interlude] stop_interlude 命令被调用");
     let mut manager = state.interlude_manager.lock().unwrap();
+
+    // 打印当前状态
+    let current_state = manager.get_state();
+    println!("[Interlude] 当前状态: is_playing={}, current_track_id={:?}", current_state.is_playing, current_state.current_track_id);
+
     manager.stop()?;
+    println!("[Interlude] stop() 已执行");
+
+    let new_state = manager.get_state();
+    println!("[Interlude] 停止后状态: is_playing={}", new_state.is_playing);
+
     Ok(true)
 }
